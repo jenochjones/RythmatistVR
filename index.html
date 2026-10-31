@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Rithmatist VR — Duel of Chalklings</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="app">
+  <canvas id="scene"></canvas>
+
+  <!-- HUD: also used as the WebXR DOM overlay root when the browser supports it -->
+  <div id="hud">
+    <div class="hud-top">
+      <div class="player-card you">
+        <span class="label">YOU</span>
+        <div class="bar"><div id="hp-you" class="fill hp"></div></div>
+        <div class="bar thin"><div id="chalk-you" class="fill chalk"></div></div>
+        <span id="score-you" class="score">0</span>
+      </div>
+      <div class="center">
+        <div id="round-label">ROUND 1 &middot; FIRST TO 2</div>
+        <div id="status">Choose a mode to begin.</div>
+      </div>
+      <div class="player-card foe">
+        <span class="label" id="foe-label">OPPONENT</span>
+        <div class="bar"><div id="hp-foe" class="fill hp"></div></div>
+        <div class="bar thin"><div id="chalk-foe" class="fill chalk"></div></div>
+        <span id="score-foe" class="score">0</span>
+      </div>
+    </div>
+    <div id="banner"></div>
+    <div id="toast"></div>
+  </div>
+
+  <div id="lobby">
+    <h1>Rithmatist VR</h1>
+    <p class="tagline">Duel of Chalklings &mdash; a tournament duel, drawn in chalk.</p>
+    <p class="intro">
+      You and your opponent start <strong>100 feet apart</strong> in a chalk arena.
+      Hold a trigger and your controller becomes a piece of chalk. Draw on the ground,
+      and your drawings come alive.
+    </p>
+
+    <div class="howto">
+      <div><b>Closed shape</b><span>becomes a Chalkling &mdash; it wiggles toward your foe and attacks their defences.</span></div>
+      <div><b>Big circle around you</b><span>becomes a Line of Warding &mdash; your defensive ring.</span></div>
+      <div><b>Long straight line</b><span>becomes a Line of Forbiddance &mdash; a wall Chalklings must break through.</span></div>
+      <div><b>Grip / Squeeze</b><span>grab a nearby Chalkling, then throw it toward your foe.</span></div>
+      <div><b>Thumbstick / WASD</b><span>move around your half of the arena. Win a round by dropping your foe to 0 health. First to 2 rounds wins the match.</span></div>
+    </div>
+
+    <div class="modes">
+      <button id="btn-practice" class="primary">Practice vs Chalk AI</button>
+      <button id="btn-host">Host a Duel</button>
+      <button id="btn-join">Join a Duel</button>
+    </div>
+
+    <div id="join-box" class="join-box hidden">
+      <label for="join-code">Duel code from your host</label>
+      <div class="row">
+        <input id="join-code" placeholder="e.g. chalk-4821" autocomplete="off">
+        <button id="btn-connect">Connect</button>
+      </div>
+    </div>
+
+    <div id="host-box" class="join-box hidden">
+      <p>Share this code with your opponent. They open this same page, choose <b>Join a Duel</b>, and enter it.</p>
+      <div class="row">
+        <input id="host-code" readonly>
+        <button id="btn-copy">Copy code</button>
+      </div>
+      <p id="host-status" class="muted">Waiting for your opponent to connect&hellip;</p>
+    </div>
+
+    <div class="row actions">
+      <button id="btn-vr" class="primary">Enter VR (Quest 2+)</button>
+      <button id="btn-desktop">Play on Desktop</button>
+    </div>
+    <p class="muted small">
+      Desktop test mode: drag with the mouse to draw, WASD to move, Q / E to turn.
+      On Quest, open this page in the Meta Quest Browser, then tap Enter VR.<br>
+      Fan-made tribute inspired by <i>The Rithmatist</i> by Brandon Sanderson. Not affiliated with the author or publisher.
+    </p>
+    <p id="lobby-error" class="error"></p>
+  </div>
+</div>
+<script type="module" src="game.js"></script>
+</body>
+</html>
