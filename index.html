@@ -43,6 +43,15 @@
     <div id="toast"></div>
   </div>
 
+  <!-- Persistent VR control. The lobby's Enter VR button disappears once a
+       game starts, which left no way into VR from the 2D game — this bar
+       stays on screen in 2D (bottom-right) whenever the lobby is hidden. -->
+  <div id="vr-bar" class="hidden">
+    <button id="btn-vr-float" class="primary">Enter VR</button>
+    <button id="btn-exit-vr" class="hidden">Exit VR</button>
+    <span id="vr-status"></span>
+  </div>
+
   <div id="lobby">
     <h1>Rithmatist VR</h1>
     <p class="tagline">Duel of Chalklings &mdash; a tournament duel, drawn in chalk.</p>
@@ -89,7 +98,8 @@
     </div>
     <p class="muted small">
       Desktop test mode: drag with the mouse to draw, WASD to move, Q / E to turn.
-      On Quest, open this page in the Meta Quest Browser, then tap Enter VR.<br>
+      On Quest, open this page in the Meta Quest Browser, then tap Enter VR.
+      After a game starts, the Enter VR button stays in the bottom-right corner, so you can switch from 2D to VR at any time.<br>
       Fan-made tribute inspired by <i>The Rithmatist</i> by Brandon Sanderson. Not affiliated with the author or publisher.
     </p>
     <p id="lobby-error" class="error"></p>
