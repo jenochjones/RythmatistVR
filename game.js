@@ -48,13 +48,14 @@ const rig = new THREE.Group();
 rig.add(camera);
 scene.add(rig);
 
-// Lights
-scene.add(new THREE.HemisphereLight(0xdde8ff, 0x1a1208, 1.1));
+// Lights (colours/intensities are retuned per scenery set below)
+const hemi = new THREE.HemisphereLight(0xdde8ff, 0x1a1208, 1.1);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff2cc, 1.2);
 sun.position.set(10, 20, 5);
 scene.add(sun);
 
-// Ground: a big chalk-slate arena
+// Ground: a big arena floor whose colour changes with the set
 const ground = new THREE.Mesh(
   new THREE.CircleGeometry(ARENA_RADIUS + 6, 64),
   new THREE.MeshStandardMaterial({ color: 0x27313f, roughness: 1 })
@@ -63,7 +64,7 @@ ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
 
 // No circles are shown when the game first starts — no arena ring and no
-// starting circles. Circles only appear later, as Lines of Warding you draw.
+// starting circles. Circles only appear later, as defenses you draw.
 function ring(radius, color, opacity = 0.9) {
   const m = new THREE.Mesh(
     new THREE.RingGeometry(radius - 0.12, radius, 64),
@@ -78,16 +79,145 @@ const centreLine = new THREE.Mesh(
 );
 centreLine.position.y = 0.02; scene.add(centreLine);
 
-// Simple standing stones / pillars for atmosphere
-for (let i = 0; i < 10; i++) {
-  const a = (i / 10) * Math.PI * 2;
-  const pillar = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.5, 0.7, 3 + (i % 3), 8),
-    new THREE.MeshStandardMaterial({ color: 0x3a4658, roughness: 1 })
-  );
-  pillar.position.set(Math.cos(a) * (ARENA_RADIUS + 2), 1.5, Math.sin(a) * (ARENA_RADIUS + 2));
-  scene.add(pillar);
+// ---------------- Scenery sets: Stage, Park, Roman Coliseum ----------------
+// All scenery lives in one group that is rebuilt when the set changes, so
+// the background, floor, lighting, and props all change together.
+// Sets rotate each time a match starts (Stage → Park → Coliseum → …),
+// and the rotation is saved, so the next match — even after a reload —
+// uses the next set. In a duel the host's set is authoritative and is
+// sent to the joiner, so both players see the same set.
+const SETS = [
+  { id: 'stage', name: 'The Stage' },
+  { id: 'park', name: 'The Park' },
+  { id: 'coliseum', name: 'The Roman Coliseum' },
+];
+let setIndex = 0;
+try {
+  const saved = parseInt(localStorage.getItem('rythmatist-set-index'), 10);
+  if (!Number.isNaN(saved)) setIndex = ((saved % SETS.length) + SETS.length) % SETS.length;
+} catch (_) { /* storage unavailable: rotate in memory only */ }
+const sceneryGroup = new THREE.Group(); scene.add(sceneryGroup);
+function std(color, opts = {}) { return new THREE.MeshStandardMaterial({ color, roughness: 1, ...opts }); }
+function prop(geo, mat, x, y, z, rotY = 0) {
+  const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.y = rotY; sceneryGroup.add(m); return m;
 }
+function boxAt(w, h, d, color, x, y, z, rotY = 0) { return prop(new THREE.BoxGeometry(w, h, d), std(color), x, y, z, rotY); }
+function cylAt(rt, rb, h, color, x, y, z, seg = 10) { return prop(new THREE.CylinderGeometry(rt, rb, h, seg), std(color), x, y, z); }
+function sphAt(r, color, x, y, z, mat = null) { return prop(new THREE.SphereGeometry(r, 12, 10), mat || std(color), x, y, z); }
+function buildStage() {
+  // A theatre stage: wooden floor, red curtains, footlights, backdrop.
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const x = Math.cos(a) * (ARENA_RADIUS + 4), z = Math.sin(a) * (ARENA_RADIUS + 4);
+    boxAt(9, 7, 0.6, 0x8b0000, x, 3.5, z, -a + Math.PI / 2);
+    boxAt(9.4, 0.5, 0.8, 0xd4af37, x, 7.2, z, -a + Math.PI / 2);
+  }
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    sphAt(0.18, 0xffd700, Math.cos(a) * (ARENA_RADIUS - 1), 0.2, Math.sin(a) * (ARENA_RADIUS - 1), new THREE.MeshBasicMaterial({ color: 0xffd700 }));
+  }
+  for (let i = 0; i < 2; i++) {
+    const z = i === 0 ? -(ARENA_RADIUS + 6) : (ARENA_RADIUS + 6);
+    boxAt(26, 6, 0.5, 0x2a1a4a, 0, 3, z);
+  }
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    cylAt(0.12, 0.12, 6, 0x111111, Math.cos(a) * (ARENA_RADIUS + 2), 3, Math.sin(a) * (ARENA_RADIUS + 2));
+    sphAt(0.35, 0xfff2cc, Math.cos(a) * (ARENA_RADIUS + 2), 6.2, Math.sin(a) * (ARENA_RADIUS + 2), new THREE.MeshBasicMaterial({ color: 0xfff2cc }));
+  }
+}
+function buildPark() {
+  // A public park: grass, trees, benches, lamp posts, bushes, flowers.
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2 + 0.3;
+    const r = ARENA_RADIUS + 3 + (i % 3);
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    cylAt(0.25, 0.35, 2.2, 0x6b4a2f, x, 1.1, z);
+    sphAt(1.6 + (i % 3) * 0.3, 0x2e7d32, x, 3.2, z);
+    sphAt(1.0, 0x388e3c, x + 0.8, 3.8, z + 0.4);
+  }
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    const x = Math.cos(a) * (ARENA_RADIUS - 3), z = Math.sin(a) * (ARENA_RADIUS - 3);
+    boxAt(2.2, 0.15, 0.6, 0x7a5230, x, 0.55, z, -a + Math.PI / 2);
+    boxAt(2.2, 0.7, 0.15, 0x7a5230, x - Math.sin(-a + Math.PI / 2) * 0.3, 0.9, z - Math.cos(-a + Math.PI / 2) * 0.3, -a + Math.PI / 2);
+  }
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const x = Math.cos(a) * (ARENA_RADIUS - 1), z = Math.sin(a) * (ARENA_RADIUS - 1);
+    cylAt(0.08, 0.1, 3, 0x222222, x, 1.5, z);
+    sphAt(0.25, 0xffe9a0, x, 3.1, z, new THREE.MeshBasicMaterial({ color: 0xffe9a0 }));
+  }
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2 + 0.7;
+    sphAt(0.6, 0x2e7d32, Math.cos(a) * (ARENA_RADIUS - 2), 0.4, Math.sin(a) * (ARENA_RADIUS - 2));
+  }
+  const flowerColors = [0xff69b4, 0xffeb3b, 0xffffff, 0xff7043];
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2 + 0.2;
+    sphAt(0.12, flowerColors[i % flowerColors.length], Math.cos(a) * (ARENA_RADIUS - 5), 0.12, Math.sin(a) * (ARENA_RADIUS - 5));
+  }
+}
+function buildColiseum() {
+  // The Roman Coliseum: sand floor, a ring of stone wall, tall columns,
+  // red banners, broken columns and rubble.
+  for (let i = 0; i < 20; i++) {
+    const a = (i / 20) * Math.PI * 2;
+    boxAt(4.2, 5, 1.6, 0x9a8f7d, Math.cos(a) * (ARENA_RADIUS + 3), 2.5, Math.sin(a) * (ARENA_RADIUS + 3), -a + Math.PI / 2);
+  }
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const x = Math.cos(a) * (ARENA_RADIUS + 1), z = Math.sin(a) * (ARENA_RADIUS + 1);
+    boxAt(1.2, 0.4, 1.2, 0xb0a494, x, 0.2, z);
+    cylAt(0.45, 0.55, 4, 0xb0a494, x, 2.4, z, 12);
+    boxAt(1.2, 0.4, 1.2, 0xb0a494, x, 4.6, z);
+  }
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const x = Math.cos(a) * (ARENA_RADIUS + 1), z = Math.sin(a) * (ARENA_RADIUS + 1);
+    boxAt(1.4, 3, 0.15, 0x8b0000, x, 3, z, -a + Math.PI / 2);
+  }
+  // Two broken columns, toppled at an angle.
+  cylAt(0.45, 0.55, 2, 0xb0a494, ARENA_RADIUS - 4, 1, 6).rotation.z = 0.4;
+  cylAt(0.45, 0.55, 1.5, 0xb0a494, -(ARENA_RADIUS - 5), 0.75, -7).rotation.z = -0.5;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + 0.5;
+    boxAt(0.8, 0.4, 0.8, 0x9a8f7d, Math.cos(a) * (ARENA_RADIUS - 3), 0.2, Math.sin(a) * (ARENA_RADIUS - 3), a);
+  }
+}
+function buildScenery(id) {
+  while (sceneryGroup.children.length) {
+    const child = sceneryGroup.children.pop();
+    child.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+  }
+  if (id === 'stage') {
+    scene.background.set(0x120a0a); scene.fog.color.set(0x120a0a);
+    ground.material.color.set(0x6b4a2f); centreLine.material.color.set(0xd4af37);
+    hemi.color.set(0x554433); hemi.groundColor.set(0x1a0f0a); hemi.intensity = 0.6;
+    sun.color.set(0xffe6b0); sun.intensity = 1.4; sun.position.set(0, 20, 5);
+    buildStage();
+  } else if (id === 'park') {
+    scene.background.set(0x87ceeb); scene.fog.color.set(0xa8d8ea);
+    ground.material.color.set(0x4a8f3f); centreLine.material.color.set(0xd9c49a);
+    hemi.color.set(0xbfe3ff); hemi.groundColor.set(0x3a6b2f); hemi.intensity = 1.0;
+    sun.color.set(0xfff2cc); sun.intensity = 1.2; sun.position.set(10, 20, 5);
+    buildPark();
+  } else {
+    scene.background.set(0xd9b98a); scene.fog.color.set(0xd9b98a);
+    ground.material.color.set(0xc2a878); centreLine.material.color.set(0x8a7d6b);
+    hemi.color.set(0xffe6b0); hemi.groundColor.set(0x8a6b4a); hemi.intensity = 0.9;
+    sun.color.set(0xffd9a0); sun.intensity = 1.3; sun.position.set(10, 20, 5);
+    buildColiseum();
+  }
+}
+function applySet(index) {
+  setIndex = ((index % SETS.length) + SETS.length) % SETS.length;
+  buildScenery(SETS[setIndex].id);
+  try { localStorage.setItem('rythmatist-set-index', String(setIndex)); } catch (_) { /* ignore */ }
+  return SETS[setIndex].name;
+}
+function advanceSet() { return applySet(setIndex + 1); }
+applySet(setIndex);
 
 // Floating instruction board above the centre (visible at spawn, fades in use)
 function makeBoard(text) {
@@ -433,6 +563,34 @@ function shapesTouch(aPts, bPts, maxGap = 0.5) {
   return false;
 }
 function initialDefenseOf(owner) { return defenses.find((d) => d.owner === owner && d.isInitial); }
+function closestPointOnPolygon(pt, pts) {
+  let best = pts[0].clone(), bestD = Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    const t = THREE.MathUtils.clamp(((pt.x - a.x) * (b.x - a.x) + (pt.z - a.z) * (b.z - a.z)) / Math.max(1e-6, a.distanceToSquared(b)), 0, 1);
+    const c = new THREE.Vector3().lerpVectors(a, b, t);
+    const d = pt.distanceTo(c);
+    if (d < bestD) { bestD = d; best = c; }
+  }
+  return best;
+}
+function clampPlayerToInitialDefense(pos, owner) {
+  // A player cannot leave their first perimeter of defense: once an
+  // initial defense exists, their position is confined inside it.
+  // No initial defense yet (or it was broken) means free movement.
+  // Projecting to the nearest perimeter point lets them slide along
+  // the inside of the wall instead of getting stuck on it.
+  const d = initialDefenseOf(owner);
+  if (!d) return;
+  if (pointInPolygon(pos, d.pts)) return;
+  const onPer = closestPointOnPolygon(pos, d.pts);
+  const toCentroid = new THREE.Vector3().subVectors(d.centroid, onPer); toCentroid.y = 0;
+  if (toCentroid.lengthSq() > 1e-6) {
+    const inset = onPer.clone().addScaledVector(toCentroid.normalize(), 0.25);
+    if (pointInPolygon(inset, d.pts)) { pos.copy(inset); return; }
+  }
+  pos.copy(onPer);
+}
 
 function shapeMeshFromPts(pts, color) {
   const c = new THREE.Vector3();
@@ -458,12 +616,6 @@ function goldOutline(pts, centroid, owner) {
     new THREE.LineBasicMaterial({ color: COLORS[owner] })
   );
 }
-function addEyes(group) {
-  [-0.12, 0.12].forEach((dx) => {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), new THREE.MeshBasicMaterial({ color: 0x111111 }));
-    eye.position.set(dx, 0.14, 0.3); group.add(eye);
-  });
-}
 function spawnChalkling(owner, pts, opts = {}) {
   const id = opts.id || uid(), broadcast = opts.broadcast !== false, isLine = !!opts.isLine;
   const mine = chalklings.filter((c) => c.owner === owner).length;
@@ -480,7 +632,7 @@ function spawnChalkling(owner, pts, opts = {}) {
   } else {
     const { mesh } = shapeMeshFromPts(pts, GOLD);
     group.add(mesh, goldOutline(pts, centroid, owner));
-    addEyes(group);
+    // No eyes: a Chalkling is just its gold shape and owner outline.
   }
   group.position.copy(centroid); group.position.y = 0;
   dynamicGroup.add(group);
@@ -565,7 +717,7 @@ function spawnDefender(owner, pts, tether, opts = {}) {
   const { mesh } = shapeMeshFromPts(pts, GOLD);
   const group = new THREE.Group();
   group.add(mesh, goldOutline(pts, centroid, owner));
-  addEyes(group);
+  // Defenders use the same eyeless look as Chalklings.
   group.position.copy(centroid); group.position.y = 0;
   dynamicGroup.add(group);
   const maxR = Math.max(...pts.map((p) => Math.hypot(p.x - centroid.x, p.z - centroid.z)));
@@ -664,7 +816,7 @@ function classifyStroke(stroke, owner, broadcast, presetPath = null) {
     if (!initialDefenseOf(owner) && pointInPolygon(myPos, pts)) {
       const ent = spawnDefensePiece(owner, pts, true, { broadcast });
       stroke.dispose();
-      toast(owner === state.playerIndex ? `Initial defense raised! ${statsText('Defense', { ...shapeStats(pts, false), dps: 0, budget: ent.maxHealth })} — health ${ent.maxHealth.toFixed(0)}.` : 'Your foe raised an initial defense.');
+      toast(owner === state.playerIndex ? `Initial defense raised! ${statsText('Defense', { ...shapeStats(pts, false), dps: 0, budget: ent.maxHealth })} — health ${ent.maxHealth.toFixed(0)}. You cannot leave this perimeter.` : 'Your foe raised an initial defense.');
       return;
     }
     // 2) A shape at the end of a tether: a tethered defender.
@@ -978,7 +1130,11 @@ function hostIdFromCode(code) { return `rythmatist-${code.replace(/[^a-z0-9-]/gi
 
 function handleMessage(msg) {
   if (!msg || !msg.t) return;
-  if (msg.t === 'pose') {
+  if (msg.t === 'set') {
+    const setName = applySet(msg.index);
+    setStatus(`Duel live — set: ${setName}.`);
+    toast(`Set: ${setName}.`);
+  } else if (msg.t === 'pose') {
     foePoseTarget = new THREE.Vector3(...msg.p);
     foeHead.quaternion.set(...msg.h);
     msg.c.forEach((c, i) => { if (foeHands[i]) foeHands[i].position.set(...c); });
@@ -1058,11 +1214,19 @@ function wireConn(c) {
 function startDuel() {
   state.mode = 'duel';
   state.scores = [0, 0]; state.round = 1;
+  // The host rotates the set and tells the joiner, so both players
+  // see the same scenery. The joiner keeps its current set until that
+  // message arrives.
+  let setName = SETS[setIndex].name;
+  if (state.playerIndex === 0) {
+    setName = advanceSet();
+    send({ t: 'set', index: setIndex });
+  }
   $('lobby').classList.add('hidden');
   updateVRBar();
   resetRound();
-  setStatus('Duel live — draw, defend, and send your Chalklings!');
-  toast('Duel live!');
+  setStatus(`Duel live — set: ${setName}. Draw, defend, and send your Chalklings!`);
+  toast(`Duel live! Set: ${setName}.`);
 }
 
 // ---------------- VR entry (persistent, not just in the lobby) ----------------
@@ -1137,11 +1301,12 @@ if (navigator.xr && navigator.xr.isSessionSupported) {
 // ---------------- Lobby wiring ----------------
 $('btn-practice').onclick = () => {
   state.mode = 'practice'; state.playerIndex = 0;
+  const setName = advanceSet();
   $('lobby').classList.add('hidden');
   updateVRBar();
   resetRound();
-  setStatus('Practice — the Chalk AI will draw against you.');
-  toast('Practice mode: draw a closed shape to summon a Chalkling.');
+  setStatus(`Practice — set: ${setName}. The Chalk AI will draw against you.`);
+  toast(`Practice mode — set: ${setName}. Draw a closed shape around yourself first for your defense.`);
 };
 $('btn-host').onclick = () => {
   if (typeof Peer === 'undefined') { $('lobby-error').textContent = 'Networking library failed to load — check your connection and reload.'; return; }
@@ -1222,6 +1387,8 @@ function aiTick(dt) {
   const t = performance.now() / 1000;
   foeGroup.position.set(Math.sin(t * 0.3) * 3, 0, SPAWN_DIST);
   foeGroup.rotation.y = Math.PI; // face the player
+  // The AI is a player too: it cannot leave its first defense perimeter.
+  clampPlayerToInitialDefense(foeGroup.position, 1);
   state.aiTimer -= dt;
   if (state.aiDefenseTimer === undefined) state.aiDefenseTimer = 4;
   state.aiDefenseTimer -= dt;
@@ -1296,9 +1463,10 @@ renderer.setAnimationLoop(() => {
     rig.rotation.y = yaw;
     camera.rotation.x = pitch;
   }
-  // Stay in the arena
+  // Stay in the arena, and inside your first defense perimeter if you have one.
   const rr = Math.hypot(rig.position.x, rig.position.z);
   if (rr > ARENA_RADIUS) { rig.position.x *= ARENA_RADIUS / rr; rig.position.z *= ARENA_RADIUS / rr; }
+  if (state.mode !== 'lobby') clampPlayerToInitialDefense(rig.position, state.playerIndex);
 
   aiTick(dt);
   updatePendingStrokes(dt);
