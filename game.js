@@ -22,7 +22,7 @@ const state = {
   roundOver: false,
   roundTimer: 0,
   aiTimer: 6,
-  aiWardTimer: 14,
+  aiDefenseTimer: 4,
   poseTimer: 0,
   chalklingSeq: 0,
 };
@@ -294,12 +294,14 @@ function resetPendingLift() {
 function updatePendingStrokes(dt) {
   const drawingNow = hands.some((h) => h.drawing) || desktopHand.drawing;
   if (drawingNow) { resetPendingLift(); return; }
-  for (let i = pendingStrokes.length - 1; i >= 0; i--) {
-    const p = pendingStrokes[i];
+  // Oldest first, so a tether activates before the defender shape drawn
+  // after it, and a Chalkling activates before the centre line drawn
+  // through it (which then finds it active and sets its path).
+  for (const p of [...pendingStrokes]) {
     p.liftedSeconds += dt;
     if (p.liftedSeconds >= ACTIVATION_LIFT_SECONDS) {
-      pendingStrokes.splice(i, 1);
-      classifyStroke(p.stroke, p.owner, true);
+      pendingStrokes.splice(pendingStrokes.indexOf(p), 1);
+      classifyStroke(p.stroke, p.owner, true, p.path || null);
     }
   }
 }
@@ -338,12 +340,98 @@ function endDesktopDraw() {
 }
 
 // ---------------- Game entities ----------------
-const chalklings = []; // {id, owner, pts, pos, group, scale, speed, phase, held, thrown, vel, hitCooldown, isRemote}
-const wards = [];      // {id, owner, center, radius, health, mesh}
+const chalklings = []; // {id, owner, pts, pos, group, scale, speed, dps, budget, path, phase, held, thrown, vel, hitCooldown, isRemote}
+const defenses = [];   // {id, owner, pts, centroid, health, maxHealth, circularity, isInitial, group, disc}
+const defenders = [];  // {id, owner, pts, pos, homePos, anchor, tetherLength, speed, dps, health, maxHealth, group, tether, phase, isRemote}
+const tethers = [];    // {id, owner, anchor, end, length, line, defenderId}
 const walls = [];      // {id, owner, a, b, health, mesh}
 const dynamicGroup = new THREE.Group(); scene.add(dynamicGroup);
 
 function uid() { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`; }
+
+// ---------------- Shape geometry: circularity, aspect, complexity ----------------
+// All strength in this game comes from the drawing itself, not from a menu:
+// a circle is strongest, a straight line is fastest and weakest, and a
+// complex shape hits harder and lasts longer than a simple one.
+function polygonArea(pts) {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], q = pts[(i + 1) % pts.length];
+    a += p.x * q.z - q.x * p.z;
+  }
+  return Math.abs(a) / 2;
+}
+function polygonPerimeter(pts) {
+  let p = 0;
+  for (let i = 0; i < pts.length; i++) p += pts[i].distanceTo(pts[(i + 1) % pts.length]);
+  return p;
+}
+function circularityOf(pts) {
+  const per = polygonPerimeter(pts);
+  if (per < 0.01) return 0;
+  return THREE.MathUtils.clamp((4 * Math.PI * polygonArea(pts)) / (per * per), 0, 1);
+}
+function pointInPolygon(pt, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i].x, zi = pts[i].z, xj = pts[j].x, zj = pts[j].z;
+    if (((zi > pt.z) !== (zj > pt.z)) && (pt.x < ((xj - xi) * (pt.z - zi)) / (zj - zi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+function distToPolygon(pt, pts) {
+  let best = Infinity, bestSeg = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const d = distToSegment(pt, pts[i], pts[(i + 1) % pts.length]);
+    if (d < best) { best = d; bestSeg = i; }
+  }
+  return { dist: best, seg: bestSeg };
+}
+function pointOnPolygon(pts, segFloat) {
+  const n = pts.length;
+  let seg = Math.floor(segFloat) % n;
+  if (seg < 0) seg += n;
+  const f = segFloat - Math.floor(segFloat);
+  const a = pts[seg], b = pts[(seg + 1) % n];
+  return new THREE.Vector3().lerpVectors(a, b, f);
+}
+function cornerStrengthAt(pts, vertexIndex) {
+  const n = pts.length;
+  const prev = pts[(vertexIndex - 1 + n) % n], cur = pts[vertexIndex], next = pts[(vertexIndex + 1) % n];
+  const v1 = new THREE.Vector3().subVectors(cur, prev); v1.y = 0;
+  const v2 = new THREE.Vector3().subVectors(next, cur); v2.y = 0;
+  if (v1.lengthSq() < 1e-6 || v2.lengthSq() < 1e-6) return 0;
+  const angle = v1.angleTo(v2);
+  return THREE.MathUtils.clamp((angle - 0.35) / 1.2, 0, 1);
+}
+function shapeStats(pts, isLine) {
+  if (isLine) {
+    const len = pts.reduce((s, p, i) => s + (i ? p.distanceTo(pts[i - 1]) : 0), 0);
+    return { circularity: 0, complexity: 0, aspect: Math.max(1, len / 0.1), length: len, width: 0.1, speed: 3.4, dps: 10, budget: 100 };
+  }
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  pts.forEach((p) => { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z); });
+  const w = Math.max(0.1, maxX - minX), h = Math.max(0.1, maxZ - minZ);
+  const major = Math.max(w, h), minor = Math.min(w, h);
+  const aspect = major / minor;
+  const circ = circularityOf(pts);
+  let corners = 0;
+  for (let i = 0; i < pts.length; i++) if (cornerStrengthAt(pts, i) > 0.4) corners++;
+  const complexity = THREE.MathUtils.clamp(corners / 12, 0, 1);
+  const speed = THREE.MathUtils.clamp(0.55 + (aspect - 1) * 0.32, 0.55, 3.4);
+  const dps = 10 + circ * 70 + complexity * 30;
+  const budget = 100 + circ * 700 + complexity * 300;
+  return { circularity: circ, complexity, aspect, length: major, width: minor, speed, dps, budget };
+}
+function statsText(kind, s) {
+  return `${kind}: speed ${s.speed.toFixed(1)} m/s, ${s.dps.toFixed(0)} damage/s, lasts ${s.budget.toFixed(0)} damage, circularity ${(s.circularity * 100).toFixed(0)}%, complexity ${(s.complexity * 100).toFixed(0)}%`;
+}
+function shapesTouch(aPts, bPts, maxGap = 0.5) {
+  for (const p of aPts) if (distToPolygon(p, bPts).dist < maxGap) return true;
+  for (const p of bPts) if (distToPolygon(p, aPts).dist < maxGap) return true;
+  return false;
+}
+function initialDefenseOf(owner) { return defenses.find((d) => d.owner === owner && d.isInitial); }
 
 function shapeMeshFromPts(pts, color) {
   const c = new THREE.Vector3();
@@ -362,61 +450,147 @@ function shapeMeshFromPts(pts, color) {
 }
 
 const GOLD = 0xffd700; // active drawings glow gold, whatever their owner
-function spawnChalkling(owner, pts, id = uid(), broadcast = true) {
-  const mine = chalklings.filter((c) => c.owner === owner).length;
-  if (mine >= 5) { toast('Too many Chalklings — wait for one to fall.'); return null; }
-  const { mesh, centroid } = shapeMeshFromPts(pts, GOLD);
-  const group = new THREE.Group();
-  group.add(mesh);
-  // A thin owner-coloured outline, so a gold Chalkling still shows whose it is.
+function goldOutline(pts, centroid, owner) {
   const outlinePts = pts.map((p) => new THREE.Vector3(p.x - centroid.x, 0.06, p.z - centroid.z));
-  const outline = new THREE.LineLoop(
+  return new THREE.LineLoop(
     new THREE.BufferGeometry().setFromPoints(outlinePts),
     new THREE.LineBasicMaterial({ color: COLORS[owner] })
   );
-  group.add(outline);
-  // Two eyes at the front of the creature
-  const r = Math.max(0.25, Math.min(1, pts.length ? 0.4 : 0.4));
+}
+function addEyes(group) {
   [-0.12, 0.12].forEach((dx) => {
     const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), new THREE.MeshBasicMaterial({ color: 0x111111 }));
     eye.position.set(dx, 0.14, 0.3); group.add(eye);
   });
+}
+function spawnChalkling(owner, pts, opts = {}) {
+  const id = opts.id || uid(), broadcast = opts.broadcast !== false, isLine = !!opts.isLine;
+  const mine = chalklings.filter((c) => c.owner === owner).length;
+  if (mine >= 5) { toast('Too many Chalklings — wait for one to fall.'); return null; }
+  const stats = opts.stats || shapeStats(pts, isLine);
+  const centroid = new THREE.Vector3();
+  pts.forEach((p) => centroid.add(p)); centroid.multiplyScalar(1 / pts.length);
+  const group = new THREE.Group();
+  if (isLine) {
+    const linePts = pts.map((p) => new THREE.Vector3(p.x - centroid.x, 0.06, p.z - centroid.z));
+    group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(linePts), new THREE.LineBasicMaterial({ color: GOLD })));
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), new THREE.MeshBasicMaterial({ color: GOLD }));
+    head.position.copy(linePts[linePts.length - 1]); group.add(head);
+  } else {
+    const { mesh } = shapeMeshFromPts(pts, GOLD);
+    group.add(mesh, goldOutline(pts, centroid, owner));
+    addEyes(group);
+  }
   group.position.copy(centroid); group.position.y = 0;
   dynamicGroup.add(group);
   const maxR = Math.max(...pts.map((p) => Math.hypot(p.x - centroid.x, p.z - centroid.z)));
   const scale = THREE.MathUtils.clamp(0.5 + maxR * 0.35, 0.5, 1.25);
   group.scale.setScalar(scale);
   const ent = {
-    id, owner, pts, pos: centroid.clone(), group, scale,
-    speed: THREE.MathUtils.clamp(1.9 - scale * 0.55, 0.9, 1.7),
+    id, owner, pts, pos: centroid.clone(), group, scale, stats,
+    speed: stats.speed, dps: stats.dps, budget: stats.budget, maxBudget: stats.budget,
+    path: opts.path || null, pathSeg: 0, pathDist: 0, perimeterT: 0, perimeterDir: 1,
+    defenseDamageAccum: 0, defenseDamageTimer: 0, hitCooldown: 0,
     phase: Math.random() * Math.PI * 2, held: false, thrown: false,
-    vel: new THREE.Vector3(), hitCooldown: 0, isRemote: false,
+    vel: new THREE.Vector3(), isRemote: false,
   };
   chalklings.push(ent);
-  if (broadcast && state.mode === 'duel' && owner === state.playerIndex) send({ t: 'spawn', kind: 'chalkling', id, owner, pts: pts.map((p) => [p.x, p.z]) });
+  if (broadcast && state.mode === 'duel' && owner === state.playerIndex) {
+    send({ t: 'spawn', kind: 'chalkling', id, owner, pts: pts.map((p) => [p.x, p.z]), isLine, stats, path: ent.path ? ent.path.map((p) => [p.x, p.z]) : null });
+  }
   return ent;
+}
+function removeChalkling(c, sendMsg = true) {
+  dynamicGroup.remove(c.group); chalklings.splice(chalklings.indexOf(c), 1);
+  if (sendMsg && state.mode === 'duel') send({ t: 'remove', kind: 'chalkling', id: c.id });
 }
 
-function spawnWard(owner, center, radius, id = uid(), broadcast = true) {
-  const old = wards.find((w) => w.owner === owner);
-  if (old) removeWard(old);
-  const g = new THREE.Group();
-  const ringMesh = ring(radius, GOLD, 1.0);
-  const glowRing = ring(radius + 0.3, GOLD, 0.25);
-  const disc = new THREE.Mesh(
-    new THREE.CircleGeometry(radius, 48),
-    new THREE.MeshBasicMaterial({ color: GOLD, transparent: true, opacity: 0.18, side: THREE.DoubleSide })
-  );
-  disc.rotation.x = -Math.PI / 2; disc.position.y = 0.025;
-  g.add(ringMesh, glowRing, disc);
-  g.position.copy(center); g.position.y = 0;
-  dynamicGroup.add(g);
-  const ent = { id, owner, center: center.clone(), radius, health: 60, mesh: g };
-  wards.push(ent);
-  if (broadcast && state.mode === 'duel' && owner === state.playerIndex) send({ t: 'spawn', kind: 'ward', id, owner, center: [center.x, center.z], radius });
+function spawnDefensePiece(owner, pts, isInitial, opts = {}) {
+  const id = opts.id || uid(), broadcast = opts.broadcast !== false;
+  const circ = opts.circularity !== undefined ? opts.circularity : circularityOf(pts);
+  const health = opts.health !== undefined ? opts.health : (isInitial ? 300 + circ * 700 : 200 + circ * 600);
+  const centroid = new THREE.Vector3();
+  pts.forEach((p) => centroid.add(p)); centroid.multiplyScalar(1 / pts.length);
+  const { mesh } = shapeMeshFromPts(pts, GOLD);
+  mesh.material = new THREE.MeshBasicMaterial({ color: GOLD, transparent: true, opacity: 0.18, side: THREE.DoubleSide });
+  const group = new THREE.Group();
+  group.add(mesh, goldOutline(pts, centroid, owner));
+  group.position.copy(centroid); group.position.y = 0;
+  dynamicGroup.add(group);
+  const ent = { id, owner, pts: pts.map((p) => p.clone()), centroid: centroid.clone(), health, maxHealth: health, circularity: circ, isInitial, group, disc: mesh };
+  defenses.push(ent);
+  if (broadcast && state.mode === 'duel' && owner === state.playerIndex) {
+    send({ t: 'spawn', kind: 'defense', id, owner, pts: pts.map((p) => [p.x, p.z]), isInitial, health, circularity: circ });
+  }
   return ent;
 }
-function removeWard(w) { dynamicGroup.remove(w.mesh); wards.splice(wards.indexOf(w), 1); if (state.mode === 'duel') send({ t: 'remove', kind: 'ward', id: w.id }); }
+function removeDefensePiece(d, sendMsg = true) {
+  dynamicGroup.remove(d.group); defenses.splice(defenses.indexOf(d), 1);
+  if (sendMsg && state.mode === 'duel') send({ t: 'remove', kind: 'defense', id: d.id });
+  if (d.isInitial) {
+    // The initial defense anchors everything attached to it.
+    [...defenses].filter((x) => x.owner === d.owner && !x.isInitial).forEach((x) => removeDefensePiece(x, sendMsg));
+    [...defenders].filter((x) => x.owner === d.owner).forEach((x) => removeDefender(x, sendMsg));
+    [...tethers].filter((x) => x.owner === d.owner).forEach((x) => removeTether(x, sendMsg));
+  }
+}
+
+function spawnTether(owner, anchor, end, opts = {}) {
+  const id = opts.id || uid(), broadcast = opts.broadcast !== false;
+  const geo = new THREE.BufferGeometry().setFromPoints([anchor.clone(), end.clone()]);
+  const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: GOLD, transparent: true, opacity: 0.9 }));
+  line.position.y = 0.05;
+  dynamicGroup.add(line);
+  const ent = { id, owner, anchor: anchor.clone(), end: end.clone(), length: anchor.distanceTo(end), line, defenderId: null };
+  tethers.push(ent);
+  if (broadcast && state.mode === 'duel' && owner === state.playerIndex) {
+    send({ t: 'spawn', kind: 'tether', id, owner, anchor: [anchor.x, anchor.z], end: [end.x, end.z] });
+  }
+  return ent;
+}
+function removeTether(t, sendMsg = true) {
+  dynamicGroup.remove(t.line); tethers.splice(tethers.indexOf(t), 1);
+  if (sendMsg && state.mode === 'duel') send({ t: 'remove', kind: 'tether', id: t.id });
+}
+function updateTetherLine(t, defenderPos) {
+  const geo = new THREE.BufferGeometry().setFromPoints([t.anchor.clone(), defenderPos.clone()]);
+  t.line.geometry.dispose(); t.line.geometry = geo;
+}
+
+function spawnDefender(owner, pts, tether, opts = {}) {
+  const id = opts.id || uid(), broadcast = opts.broadcast !== false;
+  const stats = opts.stats || shapeStats(pts, false);
+  const centroid = new THREE.Vector3();
+  pts.forEach((p) => centroid.add(p)); centroid.multiplyScalar(1 / pts.length);
+  const { mesh } = shapeMeshFromPts(pts, GOLD);
+  const group = new THREE.Group();
+  group.add(mesh, goldOutline(pts, centroid, owner));
+  addEyes(group);
+  group.position.copy(centroid); group.position.y = 0;
+  dynamicGroup.add(group);
+  const maxR = Math.max(...pts.map((p) => Math.hypot(p.x - centroid.x, p.z - centroid.z)));
+  const scale = THREE.MathUtils.clamp(0.5 + maxR * 0.35, 0.5, 1.25);
+  group.scale.setScalar(scale);
+  const health = 100 + stats.circularity * 400 + stats.complexity * 200;
+  const ent = {
+    id, owner, pts, pos: centroid.clone(), homePos: centroid.clone(),
+    anchor: tether.anchor.clone(), tetherLength: tether.length, tetherId: tether.id,
+    speed: stats.speed, dps: stats.dps, health, maxHealth: health, stats,
+    group, scale, phase: Math.random() * Math.PI * 2, isRemote: false, damageAccum: 0, damageTimer: 0,
+  };
+  defenders.push(ent);
+  tether.defenderId = id;
+  if (broadcast && state.mode === 'duel' && owner === state.playerIndex) {
+    send({ t: 'spawn', kind: 'defender', id, owner, pts: pts.map((p) => [p.x, p.z]), anchor: [tether.anchor.x, tether.anchor.z], tetherLength: tether.length, stats });
+  }
+  return ent;
+}
+function removeDefender(d, sendMsg = true) {
+  dynamicGroup.remove(d.group); defenders.splice(defenders.indexOf(d), 1);
+  const t = tethers.find((x) => x.id === d.tetherId);
+  if (t) t.defenderId = null;
+  if (sendMsg && state.mode === 'duel') send({ t: 'remove', kind: 'defender', id: d.id });
+}
 
 function spawnWall(owner, a, b, id = uid(), broadcast = true) {
   const len = a.distanceTo(b);
@@ -427,14 +601,51 @@ function spawnWall(owner, a, b, id = uid(), broadcast = true) {
   mesh.position.set((a.x + b.x) / 2, 0.45, (a.z + b.z) / 2);
   mesh.rotation.y = -Math.atan2(b.z - a.z, b.x - a.x);
   dynamicGroup.add(mesh);
-  const ent = { id, owner, a: a.clone(), b: b.clone(), health: 40, mesh };
+  const ent = { id, owner, a: a.clone(), b: b.clone(), health: 200, mesh };
   walls.push(ent);
   if (broadcast && state.mode === 'duel' && owner === state.playerIndex) send({ t: 'spawn', kind: 'wall', id, owner, a: [a.x, a.z], b: [b.x, b.z] });
   return ent;
 }
 function removeWall(w) { dynamicGroup.remove(w.mesh); walls.splice(walls.indexOf(w), 1); if (state.mode === 'duel') send({ t: 'remove', kind: 'wall', id: w.id }); }
 
-function classifyStroke(stroke, owner, broadcast) {
+function makeScaledPath(linePts, spawnPos, targetPos) {
+  const start = linePts[0], end = linePts[linePts.length - 1];
+  const lineDist = start.distanceTo(end);
+  if (lineDist < 0.5) return null;
+  const scale = spawnPos.distanceTo(targetPos) / lineDist;
+  return linePts.map((p) => new THREE.Vector3().subVectors(p, start).multiplyScalar(scale));
+}
+function tryAssignPath(owner, linePts) {
+  // A centre line drawn down a Chalkling: the Chalkling follows that line,
+  // scaled up so it fits between the two players.
+  const targetPos = owner === state.playerIndex ? foePos() : rig.position;
+  for (const c of chalklings) {
+    if (c.owner !== owner || c.isLine) continue;
+    const start = linePts[0];
+    if (pointInPolygon(start, c.pts) || distToPolygon(start, c.pts).dist < 0.5) {
+      const path = makeScaledPath(linePts, c.pos, targetPos);
+      if (!path) return false;
+      c.path = path; c.pathSeg = 0; c.pathDist = 0; c.spawnPos = c.pos.clone();
+      if (state.mode === 'duel' && owner === state.playerIndex) send({ t: 'path', id: c.id, path: path.map((p) => [p.x, p.z]) });
+      toast('Centre line set — that Chalkling will follow it.');
+      return true;
+    }
+  }
+  for (const p of pendingStrokes) {
+    if (p.owner !== owner || !p.stroke.closed) continue;
+    const start = linePts[0];
+    if (pointInPolygon(start, p.stroke.pts) || distToPolygon(start, p.stroke.pts).dist < 0.5) {
+      const spawnPos = p.stroke.centroid;
+      const path = makeScaledPath(linePts, spawnPos, targetPos);
+      if (!path) return false;
+      p.path = path;
+      toast('Centre line set — that Chalkling will follow it once it activates.');
+      return true;
+    }
+  }
+  return false;
+}
+function classifyStroke(stroke, owner, broadcast, presetPath = null) {
   const cost = Math.min(40, stroke.length * 2);
   const me = owner === state.playerIndex;
   if (me && state.chalk[owner] < cost) {
@@ -446,23 +657,40 @@ function classifyStroke(stroke, owner, broadcast) {
   const pts = stroke.pts;
   const centroid = stroke.centroid;
   const myPos = owner === state.playerIndex ? rig.position : foeGroup.position;
+  const foeP = owner === state.playerIndex ? foePos() : rig.position;
 
-  if (stroke.closed && centroid.distanceTo(myPos) < 5.5 && stroke.maxRadius > 1.7) {
-    // A big circle drawn around yourself: a Line of Warding.
-    spawnWard(owner, centroid, stroke.maxRadius, uid(), broadcast);
-    stroke.dispose();
-    toast(owner === state.playerIndex ? 'Line of Warding raised!' : 'Your foe raised a Ward.');
-    return;
-  }
   if (stroke.closed) {
-    // Any other closed shape: a Chalkling, come alive.
-    const ent = spawnChalkling(owner, pts, uid(), broadcast);
+    // 1) The first defense: a closed shape drawn all the way around yourself.
+    if (!initialDefenseOf(owner) && pointInPolygon(myPos, pts)) {
+      const ent = spawnDefensePiece(owner, pts, true, { broadcast });
+      stroke.dispose();
+      toast(owner === state.playerIndex ? `Initial defense raised! ${statsText('Defense', { ...shapeStats(pts, false), dps: 0, budget: ent.maxHealth })} — health ${ent.maxHealth.toFixed(0)}.` : 'Your foe raised an initial defense.');
+      return;
+    }
+    // 2) A shape at the end of a tether: a tethered defender.
+    const tether = tethers.find((t) => t.owner === owner && !t.defenderId && (centroid.distanceTo(t.end) < 1.2 || distToPolygon(t.end, pts).dist < 0.5));
+    if (tether) {
+      const ent = spawnDefender(owner, pts, tether, { broadcast });
+      stroke.dispose();
+      toast(owner === state.playerIndex ? `Tethered defender raised! It can roam ${tether.length.toFixed(1)} m from your defense. ${statsText('Defender', ent.stats)}` : 'Your foe raised a tethered defender.');
+      return;
+    }
+    // 3) A shape attached to an existing defense: a defense extension.
+    const attached = defenses.find((d) => d.owner === owner && shapesTouch(pts, d.pts));
+    if (attached) {
+      const ent = spawnDefensePiece(owner, pts, false, { broadcast });
+      stroke.dispose();
+      toast(owner === state.playerIndex ? `Defense extended! Health ${ent.maxHealth.toFixed(0)} (circularity ${(ent.circularity * 100).toFixed(0)}%).` : 'Your foe extended a defense.');
+      return;
+    }
+    // 4) Anything closed and not attached is a Chalkling.
+    const ent = spawnChalkling(owner, pts, { broadcast, path: presetPath });
     if (!ent) { stroke.dispose(); return; }
     stroke.dispose();
-    toast(owner === state.playerIndex ? 'A Chalkling stirs and wiggles toward your foe!' : 'A foe Chalkling is on its way!');
+    toast(owner === state.playerIndex ? `A Chalkling stirs! ${statsText('Chalkling', ent.stats)}` : 'A foe Chalkling is on its way!');
     return;
   }
-  // Long, fairly straight line: a Line of Forbiddance.
+  // Lines, in order: centre line, tether, straight dart, wall.
   const a = pts[0], b = pts[pts.length - 1];
   let maxDev = 0;
   pts.forEach((p) => {
@@ -470,6 +698,32 @@ function classifyStroke(stroke, owner, broadcast) {
     const closest = new THREE.Vector3().lerpVectors(a, b, t);
     maxDev = Math.max(maxDev, p.distanceTo(closest));
   });
+  if (tryAssignPath(owner, pts)) { stroke.dispose(); return; }
+  const initial = initialDefenseOf(owner);
+  if (initial && (distToPolygon(a, initial.pts).dist < 0.6 || pointInPolygon(a, initial.pts))) {
+    // A string/chain from your initial defense: a tether. Draw a closed
+    // shape near its far end next and it becomes a tethered defender.
+    let anchor = initial.pts[0], best = Infinity;
+    initial.pts.forEach((p) => { const d = p.distanceTo(a); if (d < best) { best = d; anchor = p; } });
+    spawnTether(owner, anchor, b, { broadcast });
+    stroke.dispose();
+    toast(owner === state.playerIndex ? 'Tether drawn — now draw a closed shape near its far end to make a defender.' : 'Your foe drew a tether.');
+    return;
+  }
+  const dir = new THREE.Vector3().subVectors(b, a); dir.y = 0;
+  const dirLen = dir.length();
+  if (dirLen > 0.01) {
+    dir.normalize();
+    const toFoe = new THREE.Vector3().subVectors(foeP, a); toFoe.y = 0; toFoe.normalize();
+    if (stroke.length > 1 && maxDev < 0.6 && dir.dot(toFoe) > 0.6) {
+      // A straight line pointed at the foe: a fast, very weak dart Chalkling.
+      const ent = spawnChalkling(owner, pts, { broadcast, isLine: true });
+      if (!ent) { stroke.dispose(); return; }
+      stroke.dispose();
+      toast(owner === state.playerIndex ? `Straight dart sent! ${statsText('Dart', ent.stats)} — 100 hits to break a perfect circle.` : 'A foe dart is racing at you!');
+      return;
+    }
+  }
   if (stroke.length > 2 && maxDev < 0.6) {
     spawnWall(owner, a, b, uid(), broadcast);
     stroke.dispose();
@@ -539,7 +793,9 @@ function endRound(winner) {
 }
 function clearEntities() {
   [...chalklings].forEach((c) => { dynamicGroup.remove(c.group); chalklings.splice(chalklings.indexOf(c), 1); });
-  [...wards].forEach((w) => { dynamicGroup.remove(w.mesh); wards.splice(wards.indexOf(w), 1); });
+  [...defenses].forEach((d) => { dynamicGroup.remove(d.group); defenses.splice(defenses.indexOf(d), 1); });
+  [...defenders].forEach((d) => { dynamicGroup.remove(d.group); defenders.splice(defenders.indexOf(d), 1); });
+  [...tethers].forEach((t) => { dynamicGroup.remove(t.line); tethers.splice(tethers.indexOf(t), 1); });
   [...walls].forEach((w) => { dynamicGroup.remove(w.mesh); walls.splice(walls.indexOf(w), 1); });
   clearPendingStrokes();
   hands.forEach((h) => { h.held = null; });
@@ -565,6 +821,19 @@ function distToSegment(p, a, b) {
   return p.distanceTo(c);
 }
 
+function damageDefensePiece(c, d, dmg, dt) {
+  d.health -= dmg;
+  if (d.disc && d.disc.material) d.disc.material.opacity = Math.max(0.02, 0.18 * Math.max(0, d.health) / d.maxHealth);
+  c.budget -= dmg;
+  c.defenseDamageAccum += dmg; c.defenseDamageTimer += dt;
+  if (state.mode === 'duel' && c.owner === state.playerIndex && c.defenseDamageTimer >= 0.5) {
+    send({ t: 'defenseDamage', id: d.id, amount: c.defenseDamageAccum });
+    c.defenseDamageAccum = 0; c.defenseDamageTimer = 0;
+  }
+  if (c.budget <= 0) { removeChalkling(c, true); return 'gone'; }
+  if (d.health <= 0) { removeDefensePiece(d, true); return 'broken'; }
+  return 'attacking';
+}
 function updateChalkling(c, dt, time) {
   if (c.held) return;
   if (c.thrown) {
@@ -573,7 +842,7 @@ function updateChalkling(c, dt, time) {
     c.pos.set(c.group.position.x, 0, c.group.position.z);
     if (c.group.position.y <= 0) {
       c.group.position.y = 0; c.thrown = false;
-      c.speed *= 1.4; // a good throw gives it a burst of vigour
+      c.speed *= 1.4;
       setTimeout(() => { c.speed /= 1.4; }, 2000);
     }
     return;
@@ -586,48 +855,134 @@ function updateChalkling(c, dt, time) {
   const dir = toTarget.clone().normalize();
 
   // Blocked by a foe wall?
-  const foeWalls = walls.filter((w) => w.owner === targetIndex);
-  for (const w of foeWalls) {
+  for (const w of walls.filter((x) => x.owner === targetIndex)) {
     if (distToSegment(c.pos, w.a, w.b) < 0.6) {
-      w.health -= 18 * dt;
+      w.health -= c.dps * dt; c.budget -= c.dps * dt;
       c.group.rotation.y = Math.atan2(dir.x, dir.z) + Math.sin(time * 10 + c.phase) * 0.2;
+      if (c.budget <= 0) { removeChalkling(c, true); return; }
       if (w.health <= 0) removeWall(w);
       return;
     }
   }
-  // Blocked by a foe ward ring?
-  const ward = wards.find((w) => w.owner === targetIndex);
-  if (ward) {
-    const dWard = c.pos.distanceTo(ward.center);
-    if (dWard < ward.radius + 0.4 && dWard > ward.radius - 1.2) {
-      ward.health -= 16 * dt;
-      c.group.rotation.y = Math.atan2(dir.x, dir.z) + Math.sin(time * 10 + c.phase) * 0.2;
-      if (ward.health <= 0) removeWard(ward);
+  // Blocked by a foe defense piece? Meander along its perimeter, erasing it.
+  // A perfect circle has no corners, so the Chalkling just keeps doing
+  // slight damage all the way around; a corner or dip takes extra damage.
+  for (const d of defenses.filter((x) => x.owner === targetIndex)) {
+    const near = distToPolygon(c.pos, d.pts);
+    if (near.dist < 0.6 || pointInPolygon(c.pos, d.pts)) {
+      if (c.perimeterT === undefined || c.attackingDefense !== d.id) { c.perimeterT = near.seg; c.attackingDefense = d.id; }
+      const vertex = Math.round(c.perimeterT) % d.pts.length;
+      const corner = cornerStrengthAt(d.pts, vertex);
+      const mult = corner > 0.4 ? 1.5 : 1.0;
+      const dmg = c.dps * mult * dt;
+      const result = damageDefensePiece(c, d, dmg, dt);
+      if (result !== 'attacking') return;
+      // Walk along the perimeter.
+      const segLen = d.pts[c.perimeterT % d.pts.length].distanceTo(d.pts[(c.perimeterT + 1) % d.pts.length]) || 1;
+      c.perimeterT = (c.perimeterT + (c.speed * 0.5 * dt) / segLen) % d.pts.length;
+      const onPer = pointOnPolygon(d.pts, c.perimeterT);
+      c.pos.set(onPer.x, 0, onPer.z);
+      c.group.position.set(onPer.x, Math.abs(Math.sin(time * 7 + c.phase)) * 0.06, onPer.z);
+      c.group.rotation.y = Math.atan2(dir.x, dir.z) + Math.sin(time * 7 + c.phase) * 0.25;
       return;
     }
   }
-  // Reached the foe?
+  c.attackingDefense = null;
+  // Blocked by a foe tethered defender? Fight it.
+  for (const def of defenders.filter((x) => x.owner === targetIndex)) {
+    if (def.pos.distanceTo(c.pos) < 1.5) {
+      def.health -= c.dps * 0.5 * dt;
+      c.defenderDamageAccum = (c.defenderDamageAccum || 0) + c.dps * 0.5 * dt;
+      c.defenderDamageTimer = (c.defenderDamageTimer || 0) + dt;
+      if (state.mode === 'duel' && c.owner === state.playerIndex && c.defenderDamageTimer >= 0.5) {
+        send({ t: 'defenderDamage', id: def.id, amount: c.defenderDamageAccum });
+        c.defenderDamageAccum = 0; c.defenderDamageTimer = 0;
+      }
+      if (def.health <= 0) removeDefender(def, true);
+      c.group.rotation.y = Math.atan2(dir.x, dir.z) + Math.sin(time * 10 + c.phase) * 0.2;
+      return;
+    }
+  }
+  // Reached the foe? Hit once a second, degrading as it deals damage.
   if (dist < 1.3) {
     c.hitCooldown -= dt;
     if (c.hitCooldown <= 0) {
-      c.hitCooldown = 0.9;
+      c.hitCooldown = 1.0;
       if (c.owner === state.playerIndex || state.mode === 'practice') {
-        // Local authority for your own Chalklings (and for the AI's, in practice).
-        applyDamage(targetIndex, 12);
-        if (state.mode === 'duel' && targetIndex !== state.playerIndex) send({ t: 'damage', target: targetIndex, amount: 12 });
+        applyDamage(targetIndex, c.dps);
+        if (state.mode === 'duel' && targetIndex !== state.playerIndex) send({ t: 'damage', target: targetIndex, amount: c.dps });
       }
-      dynamicGroup.remove(c.group); chalklings.splice(chalklings.indexOf(c), 1);
-      if (state.mode === 'duel') send({ t: 'remove', kind: 'chalkling', id: c.id });
+      c.budget -= c.dps;
+      if (c.budget <= 0) removeChalkling(c, true);
     }
     return;
   }
-  // Wiggle-walk toward the foe.
+  // Centre-line path: follow the scaled line, then fall back to meandering.
+  if (c.path && c.path.length > 1) {
+    if (!c.spawnPos) c.spawnPos = c.pos.clone();
+    let remaining = c.speed * dt;
+    while (remaining > 0 && c.pathSeg < c.path.length - 1) {
+      const a = c.path[c.pathSeg], b = c.path[c.pathSeg + 1];
+      const segLen = a.distanceTo(b) || 0.001;
+      const avail = segLen - c.pathDist;
+      if (remaining < avail) { c.pathDist += remaining; remaining = 0; }
+      else { remaining -= avail; c.pathSeg++; c.pathDist = 0; }
+    }
+    if (c.pathSeg >= c.path.length - 1) {
+      c.path = null;
+    } else {
+      const a = c.path[c.pathSeg], b = c.path[c.pathSeg + 1];
+      const off = new THREE.Vector3().lerpVectors(a, b, c.pathDist / (a.distanceTo(b) || 0.001));
+      c.pos.set(c.spawnPos.x + off.x, 0, c.spawnPos.z + off.z);
+      if (Math.hypot(c.pos.x, c.pos.z) > ARENA_RADIUS) { c.pos.x *= ARENA_RADIUS / Math.hypot(c.pos.x, c.pos.z); c.pos.z *= ARENA_RADIUS / Math.hypot(c.pos.x, c.pos.z); }
+      c.group.position.set(c.pos.x, Math.abs(Math.sin(time * 7 + c.phase)) * 0.06, c.pos.z);
+      c.group.rotation.y = Math.atan2(dir.x, dir.z) + Math.sin(time * 7 + c.phase) * 0.25;
+      return;
+    }
+  }
+  // No centre line: meander generally toward the foe.
   const perp = new THREE.Vector3(-dir.z, 0, dir.x);
   const wiggle = Math.sin(time * 7 + c.phase) * 0.35;
+  const meander = Math.sin(time * 0.8 + c.phase) * 0.35;
   c.pos.addScaledVector(dir, c.speed * dt);
+  c.pos.addScaledVector(perp, meander * c.speed * dt * 0.5);
   c.group.position.set(c.pos.x + perp.x * wiggle * 0.35, Math.abs(Math.sin(time * 7 + c.phase)) * 0.06, c.pos.z + perp.z * wiggle * 0.35);
   c.group.rotation.y = Math.atan2(dir.x, dir.z) + Math.sin(time * 7 + c.phase) * 0.25;
   c.group.scale.setScalar(c.scale * (1 + Math.sin(time * 9 + c.phase) * 0.04));
+}
+function updateDefender(d, dt, time) {
+  if (d.isRemote) return;
+  const enemies = chalklings.filter((c) => c.owner !== d.owner && !c.held);
+  let target = null, best = Infinity;
+  enemies.forEach((c) => { const dist = c.pos.distanceTo(d.pos); if (dist < best) { best = dist; target = c; } });
+  let moveTarget = d.homePos, attacking = false;
+  if (target && target.pos.distanceTo(d.anchor) <= d.tetherLength + 1.5) {
+    moveTarget = target.pos;
+    if (best < 1.5) attacking = true;
+  }
+  const toMove = new THREE.Vector3().subVectors(moveTarget, d.pos); toMove.y = 0;
+  const moveDist = toMove.length();
+  if (moveDist > 0.1) {
+    toMove.normalize();
+    d.pos.addScaledVector(toMove, Math.min(moveDist, d.speed * dt));
+    // Cannot move further than the tether allows.
+    const fromAnchor = new THREE.Vector3().subVectors(d.pos, d.anchor); fromAnchor.y = 0;
+    if (fromAnchor.length() > d.tetherLength) d.pos.copy(d.anchor).addScaledVector(fromAnchor.normalize(), d.tetherLength);
+    d.group.rotation.y = Math.atan2(toMove.x, toMove.z);
+  }
+  d.group.position.set(d.pos.x, Math.abs(Math.sin(time * 7 + d.phase)) * 0.06, d.pos.z);
+  const t = tethers.find((x) => x.id === d.tetherId);
+  if (t) updateTetherLine(t, d.pos);
+  if (attacking && target) {
+    const dmg = d.dps * dt;
+    target.budget -= dmg;
+    d.damageAccum += dmg; d.damageTimer += dt;
+    if (state.mode === 'duel' && d.damageTimer >= 0.5) {
+      send({ t: 'chalklingDamage', id: target.id, amount: d.damageAccum });
+      d.damageAccum = 0; d.damageTimer = 0;
+    }
+    if (target.budget <= 0) removeChalkling(target, true);
+  }
 }
 
 // ---------------- HUD ----------------
@@ -665,10 +1020,40 @@ function handleMessage(msg) {
   } else if (msg.t === 'spawn') {
     const toVec = (a) => new THREE.Vector3(a[0], 0.03, a[1]);
     if (msg.kind === 'chalkling') {
-      const ent = spawnChalkling(msg.owner, msg.pts.map(toVec), msg.id, false);
-      if (ent) ent.isRemote = true;
-    } else if (msg.kind === 'ward') spawnWard(msg.owner, toVec(msg.center), msg.radius, msg.id, false);
-    else if (msg.kind === 'wall') spawnWall(msg.owner, toVec(msg.a), toVec(msg.b), msg.id, false);
+      const path = msg.path ? msg.path.map((p) => new THREE.Vector3(p[0], 0, p[1])) : null;
+      const ent = spawnChalkling(msg.owner, msg.pts.map(toVec), { id: msg.id, broadcast: false, isLine: msg.isLine, stats: msg.stats, path });
+      if (ent) { ent.isRemote = true; if (path) ent.spawnPos = ent.pos.clone(); }
+    } else if (msg.kind === 'defense') {
+      spawnDefensePiece(msg.owner, msg.pts.map(toVec), msg.isInitial, { id: msg.id, broadcast: false, health: msg.health, circularity: msg.circularity });
+    } else if (msg.kind === 'tether') {
+      spawnTether(msg.owner, toVec(msg.anchor), toVec(msg.end), { id: msg.id, broadcast: false });
+    } else if (msg.kind === 'defender') {
+      const fakeTether = { anchor: toVec(msg.anchor), length: msg.tetherLength, id: `remote-${msg.id}` };
+      const ent = spawnDefender(msg.owner, msg.pts.map(toVec), fakeTether, { id: msg.id, broadcast: false, stats: msg.stats });
+      if (ent) { ent.isRemote = true; ent.tetherId = fakeTether.id; }
+      // The real tether line arrives separately; keep this defender's chain
+      // in sync by pointing it at the matching tether when it arrives.
+      const real = tethers.find((t) => t.owner === msg.owner && !t.defenderId && t.anchor.distanceTo(toVec(msg.anchor)) < 0.5);
+      if (real && ent) { ent.tetherId = real.id; real.defenderId = ent.id; }
+    } else if (msg.kind === 'wall') spawnWall(msg.owner, toVec(msg.a), toVec(msg.b), msg.id, false);
+  } else if (msg.t === 'path') {
+    const c = chalklings.find((x) => x.id === msg.id);
+    if (c) { c.path = msg.path.map((p) => new THREE.Vector3(p[0], 0, p[1])); c.pathSeg = 0; c.pathDist = 0; c.spawnPos = c.pos.clone(); }
+  } else if (msg.t === 'defenseDamage') {
+    const d = defenses.find((x) => x.id === msg.id);
+    if (d) {
+      d.health -= msg.amount;
+      if (d.disc && d.disc.material) d.disc.material.opacity = Math.max(0.02, 0.18 * Math.max(0, d.health) / d.maxHealth);
+    }
+  } else if (msg.t === 'chalklingDamage') {
+    const c = chalklings.find((x) => x.id === msg.id);
+    if (c) { c.budget -= msg.amount; if (c.budget <= 0) removeChalkling(c, false); }
+  } else if (msg.t === 'defenderDamage') {
+    const d = defenders.find((x) => x.id === msg.id);
+    if (d) { d.health -= msg.amount; if (d.health <= 0) removeDefender(d, false); }
+  } else if (msg.t === 'defenderPos') {
+    const d = defenders.find((x) => x.id === msg.id);
+    if (d && d.isRemote) d.pos.set(msg.p[0], 0, msg.p[1]);
   } else if (msg.t === 'stroke') {
     const r = new Ribbon(COLOR_HEX[1 - state.playerIndex]);
     msg.pts.forEach((p) => r.add(new THREE.Vector3(p[0], 0.03, p[1])));
@@ -684,10 +1069,16 @@ function handleMessage(msg) {
   } else if (msg.t === 'remove') {
     if (msg.kind === 'chalkling') {
       const c = chalklings.find((x) => x.id === msg.id);
-      if (c) { dynamicGroup.remove(c.group); chalklings.splice(chalklings.indexOf(c), 1); }
-    } else if (msg.kind === 'ward') {
-      const w = wards.find((x) => x.id === msg.id);
-      if (w) { dynamicGroup.remove(w.mesh); wards.splice(wards.indexOf(w), 1); }
+      if (c) removeChalkling(c, false);
+    } else if (msg.kind === 'defense') {
+      const d = defenses.find((x) => x.id === msg.id);
+      if (d) removeDefensePiece(d, false);
+    } else if (msg.kind === 'defender') {
+      const d = defenders.find((x) => x.id === msg.id);
+      if (d) removeDefender(d, false);
+    } else if (msg.kind === 'tether') {
+      const t = tethers.find((x) => x.id === msg.id);
+      if (t) removeTether(t, false);
     } else if (msg.kind === 'wall') {
       const w = walls.find((x) => x.id === msg.id);
       if (w) { dynamicGroup.remove(w.mesh); walls.splice(walls.indexOf(w), 1); }
@@ -866,14 +1257,17 @@ function aiTick(dt) {
   const t = performance.now() / 1000;
   foeGroup.position.set(Math.sin(t * 0.3) * 3, 0, SPAWN_DIST);
   foeGroup.rotation.y = Math.PI; // face the player
-  state.aiTimer -= dt; state.aiWardTimer -= dt;
-  if (state.aiWardTimer <= 0) {
-    state.aiWardTimer = 18 + Math.random() * 8;
-    if (!wards.find((w) => w.owner === 1)) {
+  state.aiTimer -= dt;
+  if (state.aiDefenseTimer === undefined) state.aiDefenseTimer = 4;
+  state.aiDefenseTimer -= dt;
+  if (state.aiDefenseTimer <= 0) {
+    state.aiDefenseTimer = 18 + Math.random() * 8;
+    if (!initialDefenseOf(1)) {
       const c = foeGroup.position.clone();
       const pts = [];
       for (let i = 0; i < 24; i++) { const a = (i / 24) * Math.PI * 2; pts.push(new THREE.Vector3(c.x + Math.cos(a) * 2.6, 0.03, c.z + Math.sin(a) * 2.6)); }
-      spawnWard(1, c, 2.6, uid(), false);
+      spawnDefensePiece(1, pts, true, { broadcast: false });
+      toast('The Chalk AI raises a near-perfect circular defense.');
     }
   }
   if (state.aiTimer <= 0) {
@@ -882,7 +1276,7 @@ function aiTick(dt) {
       const base = foeGroup.position.clone(); base.z -= 2.5;
       const pts = [];
       for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2; const r = 0.55 + Math.random() * 0.35; pts.push(new THREE.Vector3(base.x + Math.cos(a) * r, 0.03, base.z + Math.sin(a) * r)); }
-      spawnChalkling(1, pts, uid(), false);
+      spawnChalkling(1, pts, { broadcast: false });
       toast('The Chalk AI sends a Chalkling!');
     }
   }
@@ -962,6 +1356,18 @@ renderer.setAnimationLoop(() => {
       updateChalkling(c, dt, time);
     }
   });
+  // Tethered defenders: local ones hunt, remote ones interpolate, and
+  // every tether chain is redrawn to its defender's current position.
+  [...defenders].forEach((d) => {
+    if (d.isRemote) {
+      d.group.position.x += (d.pos.x - d.group.position.x) * Math.min(1, dt * 8);
+      d.group.position.z += (d.pos.z - d.group.position.z) * Math.min(1, dt * 8);
+    } else {
+      updateDefender(d, dt, time);
+    }
+    const t = tethers.find((x) => x.id === d.tetherId);
+    if (t) updateTetherLine(t, d.group.position);
+  });
 
   // Opponent pose interpolation (duel mode)
   if (state.mode === 'duel' && foePoseTarget) {
@@ -978,6 +1384,9 @@ renderer.setAnimationLoop(() => {
     send({ t: 'pose', p: [rig.position.x, rig.position.y, rig.position.z], h: [hq.x, hq.y, hq.z, hq.w], c: cs });
     chalklings.filter((c) => c.owner === state.playerIndex && !c.held).forEach((c) => {
       send({ t: 'chalklingPos', id: c.id, p: [c.pos.x, c.pos.z] });
+    });
+    defenders.filter((d) => d.owner === state.playerIndex).forEach((d) => {
+      send({ t: 'defenderPos', id: d.id, p: [d.pos.x, d.pos.z] });
     });
   }
 
