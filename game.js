@@ -62,7 +62,8 @@ const ground = new THREE.Mesh(
 ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
 
-// Arena ring + centre line + starting circles
+// No circles are shown when the game first starts — no arena ring and no
+// starting circles. Circles only appear later, as Lines of Warding you draw.
 function ring(radius, color, opacity = 0.9) {
   const m = new THREE.Mesh(
     new THREE.RingGeometry(radius - 0.12, radius, 64),
@@ -71,9 +72,6 @@ function ring(radius, color, opacity = 0.9) {
   m.rotation.x = -Math.PI / 2; m.position.y = 0.02;
   return m;
 }
-scene.add(ring(ARENA_RADIUS, 0xf5f0dc, 0.5));
-scene.add(ring(3, COLOR_HEX[0], 0.9)); scene.children.at(-1).position.z = -SPAWN_DIST;
-scene.add(ring(3, COLOR_HEX[1], 0.9)); scene.children.at(-1).position.z = SPAWN_DIST;
 const centreLine = new THREE.Mesh(
   new THREE.BoxGeometry(2 * ARENA_RADIUS, 0.02, 0.18),
   new THREE.MeshBasicMaterial({ color: 0xf5f0dc })
@@ -106,7 +104,7 @@ function makeBoard(text) {
   mesh.position.set(0, 3.4, 0);
   return mesh;
 }
-const board = makeBoard('Hold a trigger: your controller becomes chalk\nDraw a closed shape to summon a Chalkling');
+const board = makeBoard('Hold a trigger: your controller becomes chalk\nDraw on the ground, tip within 6 inches\nLift the chalk for 3 seconds to activate');
 scene.add(board);
 
 // ---------------- Players / avatars ----------------
@@ -162,23 +160,29 @@ for (let i = 0; i < 2; i++) {
     new THREE.MeshStandardMaterial({ color: 0x1c1f24, roughness: 0.6 })
   );
   ctrlMesh.add(body);
-  // The piece of chalk (shown while the trigger is held)
+  // The piece of chalk (shown while the trigger is held). It points DOWN
+  // from the controller, not forward: the blunt top of the chalk sits
+  // against the bottom of the controller and the writing tip sticks out
+  // below it, like holding a piece of chalk in your fist to write on
+  // the ground. A tip marker tracks exactly where that tip is in the world.
   const chalkMesh = new THREE.Group();
   const stick = new THREE.Mesh(
     new THREE.CylinderGeometry(0.018, 0.018, 0.22, 10),
     new THREE.MeshStandardMaterial({ color: 0xf5f0dc, roughness: 1 })
   );
-  stick.rotation.x = Math.PI / 2; stick.position.z = -0.12;
+  stick.position.y = -0.13;
   const tip = new THREE.Mesh(
     new THREE.ConeGeometry(0.018, 0.05, 10),
     new THREE.MeshStandardMaterial({ color: 0xf5f0dc, roughness: 1 })
   );
-  tip.rotation.x = -Math.PI / 2; tip.position.z = -0.25;
-  chalkMesh.add(stick, tip);
+  tip.rotation.x = Math.PI; tip.position.y = -0.265;
+  const tipMarker = new THREE.Object3D();
+  tipMarker.position.y = -0.29;
+  chalkMesh.add(stick, tip, tipMarker);
   chalkMesh.visible = false;
   grip.add(ctrlMesh, chalkMesh);
   const hand = {
-    index: i, grip, controller, ctrlMesh, chalkMesh,
+    index: i, grip, controller, ctrlMesh, chalkMesh, tipMarker,
     drawing: false, stroke: null, held: null,
     lastGripPos: new THREE.Vector3(), gripVel: new THREE.Vector3(),
   };
@@ -197,17 +201,17 @@ const strokesGroup = new THREE.Group(); scene.add(strokesGroup);
 const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const raycaster = new THREE.Raycaster();
 
+const MAX_DRAW_HEIGHT = 0.1524; // 6 inches, in metres
 function groundPointFromGrip(hand) {
-  const origin = new THREE.Vector3(), dir = new THREE.Vector3();
-  hand.grip.getWorldPosition(origin);
-  hand.grip.getWorldQuaternion(new THREE.Quaternion());
-  const q = new THREE.Quaternion(); hand.grip.getWorldQuaternion(q);
-  dir.set(0, 0, -1).applyQuaternion(q);
-  if (dir.y > -0.05) return null;
-  const t = -origin.y / dir.y;
-  const p = origin.clone().add(dir.multiplyScalar(t));
-  if (Math.hypot(p.x, p.z) > ARENA_RADIUS) return null;
-  p.y = 0.03; return p;
+  // Draw from the chalk tip itself, straight down to the ground — and only
+  // when that tip is within 6 inches of the ground. Hold the controller
+  // high and nothing is drawn, however hard you hold the trigger.
+  if (!hand.tipMarker) return null;
+  const tip = new THREE.Vector3();
+  hand.tipMarker.getWorldPosition(tip);
+  if (tip.y > MAX_DRAW_HEIGHT || tip.y < -0.05) return null;
+  if (Math.hypot(tip.x, tip.z) > ARENA_RADIUS) return null;
+  return new THREE.Vector3(tip.x, 0.03, tip.z);
 }
 function groundPointFromMouse(e) {
   const ndc = new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
@@ -238,7 +242,7 @@ class Ribbon {
       const d = b.clone().sub(a); d.y = 0;
       if (d.lengthSq() < 1e-6) d.set(1, 0, 0);
       d.normalize();
-      const perp = new THREE.Vector3(-d.z, 0, d.x).multiplyScalar(0.055);
+      const perp = new THREE.Vector3(-d.z, 0, d.x).multiplyScalar(0.018); // thin chalk line: ~3.6 cm wide
       const p = this.pts[i];
       pos.push(p.x - perp.x, 0.03, p.z - perp.z, p.x + perp.x, 0.03, p.z + perp.z);
     }
@@ -272,9 +276,41 @@ class Ribbon {
   }
 }
 
+// Drawings do not activate the moment you lift the chalk. They sit as
+// plain white chalk until the chalk has been lifted continuously for
+// 3 seconds — only then do they come alive (gold, see below). Picking
+// the chalk up again before those 3 seconds are up restarts the count,
+// so a batch of drawings activates together on the next clean lift.
+const ACTIVATION_LIFT_SECONDS = 3;
+const pendingStrokes = []; // {stroke, owner, liftedSeconds}
+function queueStroke(stroke, owner) {
+  if (!stroke || stroke.pts.length < 2) { if (stroke) stroke.dispose(); return; }
+  pendingStrokes.push({ stroke, owner, liftedSeconds: 0 });
+  toast('Drawing set — keep the chalk lifted for 3 seconds to activate it.');
+}
+function resetPendingLift() {
+  pendingStrokes.forEach((p) => { p.liftedSeconds = 0; });
+}
+function updatePendingStrokes(dt) {
+  const drawingNow = hands.some((h) => h.drawing) || desktopHand.drawing;
+  if (drawingNow) { resetPendingLift(); return; }
+  for (let i = pendingStrokes.length - 1; i >= 0; i--) {
+    const p = pendingStrokes[i];
+    p.liftedSeconds += dt;
+    if (p.liftedSeconds >= ACTIVATION_LIFT_SECONDS) {
+      pendingStrokes.splice(i, 1);
+      classifyStroke(p.stroke, p.owner, true);
+    }
+  }
+}
+function clearPendingStrokes() {
+  pendingStrokes.forEach((p) => p.stroke.dispose());
+  pendingStrokes.length = 0;
+}
 function startDraw(handIndex) {
   const hand = hands[handIndex];
   if (hand.drawing) return;
+  resetPendingLift();
   hand.drawing = true;
   hand.stroke = new Ribbon(COLOR_HEX[state.playerIndex]);
 }
@@ -282,13 +318,14 @@ function endDraw(handIndex) {
   const hand = hands[handIndex];
   if (!hand.drawing || !hand.stroke) return;
   hand.drawing = false;
-  classifyStroke(hand.stroke, state.playerIndex, true);
+  queueStroke(hand.stroke, state.playerIndex);
   hand.stroke = null;
 }
 function startDesktopDraw(e) {
   if (state.mode === 'lobby') return;
   const p = groundPointFromMouse(e);
   if (!p) return;
+  resetPendingLift();
   desktopHand.drawing = true;
   desktopHand.stroke = new Ribbon(COLOR_HEX[state.playerIndex]);
   desktopHand.stroke.add(p);
@@ -296,7 +333,7 @@ function startDesktopDraw(e) {
 function endDesktopDraw() {
   if (!desktopHand.drawing || !desktopHand.stroke) return;
   desktopHand.drawing = false;
-  classifyStroke(desktopHand.stroke, state.playerIndex, true);
+  queueStroke(desktopHand.stroke, state.playerIndex);
   desktopHand.stroke = null;
 }
 
@@ -324,12 +361,20 @@ function shapeMeshFromPts(pts, color) {
   return { mesh, centroid: c };
 }
 
+const GOLD = 0xffd700; // active drawings glow gold, whatever their owner
 function spawnChalkling(owner, pts, id = uid(), broadcast = true) {
   const mine = chalklings.filter((c) => c.owner === owner).length;
   if (mine >= 5) { toast('Too many Chalklings — wait for one to fall.'); return null; }
-  const { mesh, centroid } = shapeMeshFromPts(pts, COLORS[owner]);
+  const { mesh, centroid } = shapeMeshFromPts(pts, GOLD);
   const group = new THREE.Group();
   group.add(mesh);
+  // A thin owner-coloured outline, so a gold Chalkling still shows whose it is.
+  const outlinePts = pts.map((p) => new THREE.Vector3(p.x - centroid.x, 0.06, p.z - centroid.z));
+  const outline = new THREE.LineLoop(
+    new THREE.BufferGeometry().setFromPoints(outlinePts),
+    new THREE.LineBasicMaterial({ color: COLORS[owner] })
+  );
+  group.add(outline);
   // Two eyes at the front of the creature
   const r = Math.max(0.25, Math.min(1, pts.length ? 0.4 : 0.4));
   [-0.12, 0.12].forEach((dx) => {
@@ -356,13 +401,14 @@ function spawnWard(owner, center, radius, id = uid(), broadcast = true) {
   const old = wards.find((w) => w.owner === owner);
   if (old) removeWard(old);
   const g = new THREE.Group();
-  const ringMesh = ring(radius, COLORS[owner], 0.95);
+  const ringMesh = ring(radius, GOLD, 1.0);
+  const glowRing = ring(radius + 0.3, GOLD, 0.25);
   const disc = new THREE.Mesh(
     new THREE.CircleGeometry(radius, 48),
-    new THREE.MeshBasicMaterial({ color: COLORS[owner], transparent: true, opacity: 0.12, side: THREE.DoubleSide })
+    new THREE.MeshBasicMaterial({ color: GOLD, transparent: true, opacity: 0.18, side: THREE.DoubleSide })
   );
   disc.rotation.x = -Math.PI / 2; disc.position.y = 0.025;
-  g.add(ringMesh, disc);
+  g.add(ringMesh, glowRing, disc);
   g.position.copy(center); g.position.y = 0;
   dynamicGroup.add(g);
   const ent = { id, owner, center: center.clone(), radius, health: 60, mesh: g };
@@ -376,7 +422,7 @@ function spawnWall(owner, a, b, id = uid(), broadcast = true) {
   const len = a.distanceTo(b);
   const mesh = new THREE.Mesh(
     new THREE.BoxGeometry(len, 0.9, 0.16),
-    new THREE.MeshStandardMaterial({ color: COLORS[owner], transparent: true, opacity: 0.85 })
+    new THREE.MeshStandardMaterial({ color: GOLD, emissive: 0xffaa00, emissiveIntensity: 0.9, transparent: true, opacity: 0.9 })
   );
   mesh.position.set((a.x + b.x) / 2, 0.45, (a.z + b.z) / 2);
   mesh.rotation.y = -Math.atan2(b.z - a.z, b.x - a.x);
@@ -495,6 +541,7 @@ function clearEntities() {
   [...chalklings].forEach((c) => { dynamicGroup.remove(c.group); chalklings.splice(chalklings.indexOf(c), 1); });
   [...wards].forEach((w) => { dynamicGroup.remove(w.mesh); wards.splice(wards.indexOf(w), 1); });
   [...walls].forEach((w) => { dynamicGroup.remove(w.mesh); walls.splice(walls.indexOf(w), 1); });
+  clearPendingStrokes();
   hands.forEach((h) => { h.held = null; });
 }
 function resetRound() {
@@ -903,6 +950,7 @@ renderer.setAnimationLoop(() => {
   if (rr > ARENA_RADIUS) { rig.position.x *= ARENA_RADIUS / rr; rig.position.z *= ARENA_RADIUS / rr; }
 
   aiTick(dt);
+  updatePendingStrokes(dt);
 
   // Chalklings: local ones simulate, remote ones interpolate to network pos
   [...chalklings].forEach((c) => {
