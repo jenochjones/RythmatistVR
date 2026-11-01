@@ -78,8 +78,11 @@ right-drag to look around.
   circular Chalklings deal more damage before they degrade.
 * **Long straight line (not pointed at your foe)** → a Line of
   Forbiddance, a wall Chalklings must break through.
-* **Grip / Squeeze** near a Chalkling to grab it, then release with a flick
-  to throw it toward your opponent. A good throw gives it a burst of speed.
+* **No direct interaction with Chalklings.** You cannot pick up, carry,
+  or throw a Chalkling — in VR, on desktop, or in a duel, and squeezing
+  a controller does nothing. Once a drawing activates, it acts on its
+  own. You affect Chalklings only indirectly, by drawing defenses,
+  tethered defenders, walls, or new Chalklings.
 * Chalk is a resource: drawing costs chalk, and it recharges over time.
   You can have at most 5 Chalklings alive at once.
 
@@ -101,8 +104,7 @@ Both headsets must be on a network that allows WebRTC peer connections
 * `index.html` — lobby, HUD, and page shell.
 * `game.js` — the whole game: Three.js + WebXR scene, chalk drawing and
   shape classification, Chalklings, defenses, tethered defenders, walls,
-  grabbing/throwing, tournament rounds, the practice AI, and peer-to-peer
-  multiplayer.
+  tournament rounds, the practice AI, and peer-to-peer multiplayer.
 * `style.css` — lobby and HUD styling.
 
 ## GitHub Pages setup
