@@ -42,7 +42,10 @@ right-drag to look around.
   Chalkling is). No circles are shown at the start of a game; circles
   only appear as defenses you draw.
 * **Start with your defense.** Draw a closed shape all the way around
-  yourself and it becomes your initial defense. A circle is strongest:
+  yourself and it becomes your initial defense. You cannot leave this
+  first perimeter: once it exists, you can move only inside it (you
+  slide along its inside edge if you try to walk out). If it breaks,
+  you can move freely again until you draw a new one. A circle is strongest:
   strength is measured by circularity (4π·area / perimeter²), so a
   perfect circle has 1000 health, a square about 850, and a ragged shape
   much less. No initial defense, no protection — draw it first.
@@ -82,7 +85,15 @@ right-drag to look around.
   or throw a Chalkling — in VR, on desktop, or in a duel, and squeezing
   a controller does nothing. Once a drawing activates, it acts on its
   own. You affect Chalklings only indirectly, by drawing defenses,
-  tethered defenders, walls, or new Chalklings.
+  tethered defenders, walls, or new Chalklings. Chalklings have no eyes:
+  they are just their gold shape and owner-coloured outline.
+* **Scenery rotates each match.** Each time you start a match, the set
+  changes: **The Stage** (wooden floor, red curtains, footlights),
+  **The Park** (grass, trees, benches, lamp posts), then **The Roman
+  Coliseum** (sand floor, stone wall ring, columns, red banners), then
+  back to The Stage. The rotation is saved, so the next match after a
+  reload uses the next set. In a duel, the host's set is sent to the
+  joiner so both players see the same scenery.
 * Chalk is a resource: drawing costs chalk, and it recharges over time.
   You can have at most 5 Chalklings alive at once.
 
