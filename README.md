@@ -17,7 +17,10 @@ Not affiliated with the author or publisher.
 1. Open the link above in the Meta Quest Browser.
 2. Choose **Practice vs Chalk AI** for solo play, or **Host a Duel** /
    **Join a Duel** for a 2-player match.
-3. Tap **Enter VR (Quest 2+)** and allow VR.
+3. Tap **Enter VR (Quest 2+)** and allow VR. The page starts in 2D —
+   that is normal. If you start a game in 2D first, the **Enter VR**
+   button stays in the bottom-right corner, so you can switch into VR
+   at any time, and **Exit VR** brings you back to 2D.
 4. You spawn 100 feet (30.48 m) from your opponent, facing each other.
 
 **On desktop (for testing):**
