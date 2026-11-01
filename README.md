@@ -33,7 +33,15 @@ right-drag to look around.
 * Best of 3 rounds. Win a round by dropping your opponent to 0 health.
   First to 2 rounds wins the match.
 * **Hold a trigger** and the controller in that hand becomes a piece of chalk.
-  Draw on the ground while holding it.
+  The chalk points down from the bottom of the controller, blunt end against
+  the controller and tip below it. It only draws while the tip is within
+  6 inches of the ground, and the lines are thin.
+* Drawings do not activate immediately: they stay plain white chalk until
+  you have lifted the chalk for 3 seconds straight. Then they glow gold
+  and come alive — gold Chalklings, gold Lines of Warding, and gold Lines
+  of Forbiddance (a thin owner-coloured outline still shows whose a
+  Chalkling is). No circles are shown at the start of a game; circles
+  only appear as Wards you draw.
 * **Closed shape** → a Chalkling. It comes alive, wiggles across the arena
   toward your opponent, and attacks their defences — then them.
 * **Big circle drawn around yourself** → a Line of Warding, your defensive ring.
