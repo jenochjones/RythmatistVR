@@ -656,15 +656,86 @@ function startDuel() {
   state.mode = 'duel';
   state.scores = [0, 0]; state.round = 1;
   $('lobby').classList.add('hidden');
+  updateVRBar();
   resetRound();
   setStatus('Duel live — draw, defend, and send your Chalklings!');
   toast('Duel live!');
+}
+
+// ---------------- VR entry (persistent, not just in the lobby) ----------------
+// The original bug: the only Enter VR button lived inside #lobby, so once a
+// game started and the lobby hid, the game stayed 2D with no way into VR.
+// These helpers drive both the lobby button and the always-visible corner
+// bar, and retry the session without the DOM overlay if that option fails.
+let xrSession = null;
+function updateVRBar() {
+  const bar = $('vr-bar');
+  if (!bar) return;
+  const lobbyHidden = $('lobby').classList.contains('hidden');
+  bar.classList.toggle('hidden', !lobbyHidden);
+  const inXR = !!renderer.xr.getSession();
+  const enter = $('btn-vr-float'), exit = $('btn-exit-vr');
+  if (enter) enter.classList.toggle('hidden', inXR);
+  if (exit) exit.classList.toggle('hidden', !inXR);
+}
+function setVRStatus(msg) {
+  const el = $('vr-status');
+  if (el) el.textContent = msg || '';
+}
+async function enterVR() {
+  if (renderer.xr.getSession()) return;
+  // Still a real user gesture at this point: no await happens before this.
+  if (state.mode === 'lobby') $('btn-practice').click();
+  updateVRBar();
+  if (!navigator.xr) {
+    setVRStatus('VR is not available in this browser. Open this page in the Meta Quest Browser on a Quest headset.');
+    toast('VR is not available in this browser.');
+    return;
+  }
+  setVRStatus('Starting VR…');
+  const attempts = [
+    { optionalFeatures: ['local-floor', 'bounded-floor', 'dom-overlay'], domOverlay: { root: $('hud') } },
+    { optionalFeatures: ['local-floor', 'bounded-floor'] },
+    {},
+  ];
+  let lastErr = null;
+  for (const opts of attempts) {
+    try {
+      const session = await navigator.xr.requestSession('immersive-vr', opts);
+      await renderer.xr.setSession(session);
+      xrSession = session;
+      setVRStatus('');
+      toast('Welcome to the arena. Hold a trigger to draw.');
+      updateVRBar();
+      return;
+    } catch (e) { lastErr = e; }
+  }
+  const reason = lastErr && lastErr.message ? lastErr.message : 'unknown error';
+  setVRStatus(`VR could not start (${reason}). On Quest, use the Meta Quest Browser over HTTPS and allow VR.`);
+  toast('VR session could not start — see the message by the Enter VR button.');
+  const le = $('lobby-error');
+  if (le) le.textContent = `VR unavailable: ${reason}`;
+}
+async function exitVR() {
+  const s = renderer.xr.getSession();
+  if (s) { try { await s.end(); } catch (_) { /* already ended */ } }
+}
+if (navigator.xr && navigator.xr.isSessionSupported) {
+  navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+    if (!supported) {
+      setVRStatus('Immersive VR is not supported on this device/browser — use the Meta Quest Browser on a Quest headset.');
+      const b1 = $('btn-vr'), b2 = $('btn-vr-float');
+      if (b1) { b1.disabled = true; b1.textContent = 'VR not available here'; }
+      if (b2) { b2.disabled = true; b2.textContent = 'VR not available here'; }
+    }
+  }).catch(() => { /* leave the button enabled; enterVR reports the error */ });
 }
 
 // ---------------- Lobby wiring ----------------
 $('btn-practice').onclick = () => {
   state.mode = 'practice'; state.playerIndex = 0;
   $('lobby').classList.add('hidden');
+  updateVRBar();
   resetRound();
   setStatus('Practice — the Chalk AI will draw against you.');
   toast('Practice mode: draw a closed shape to summon a Chalkling.');
@@ -706,23 +777,14 @@ $('btn-copy').onclick = async () => {
   try { await navigator.clipboard.writeText($('host-code').value); toast('Code copied.'); }
   catch (_) { $('host-code').select(); toast('Code selected — copy it manually.'); }
 };
-$('btn-vr').onclick = async () => {
-  if (state.mode === 'lobby') $('btn-practice').click();
-  try {
-    const session = await navigator.xr.requestSession('immersive-vr', {
-      optionalFeatures: ['local-floor', 'bounded-floor', 'dom-overlay'],
-      domOverlay: { root: $('hud') },
-    });
-    renderer.xr.setSession(session);
-    toast('Welcome to the arena. Hold a trigger to draw.');
-  } catch (e) {
-    toast('VR session could not start. On Quest, use the Meta Quest Browser and allow VR.');
-    $('lobby-error').textContent = `VR unavailable: ${e.message}`;
-  }
-};
+$('btn-vr').onclick = enterVR;
+const floatBtn = $('btn-vr-float');
+if (floatBtn) floatBtn.onclick = enterVR;
+const exitBtn = $('btn-exit-vr');
+if (exitBtn) exitBtn.onclick = exitVR;
 $('btn-desktop').onclick = () => {
   if (state.mode === 'lobby') $('btn-practice').click();
-  else $('lobby').classList.add('hidden');
+  else { $('lobby').classList.add('hidden'); updateVRBar(); }
 };
 
 // Desktop input
@@ -742,8 +804,14 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
-renderer.xr.addEventListener('sessionstart', () => { camera.position.set(0, 0, 0); });
-renderer.xr.addEventListener('sessionend', () => { camera.position.set(0, 1.6, 0); });
+renderer.xr.addEventListener('sessionstart', () => { camera.position.set(0, 0, 0); updateVRBar(); });
+renderer.xr.addEventListener('sessionend', () => {
+  camera.position.set(0, 1.6, 0);
+  xrSession = null;
+  setVRStatus('Exited VR — tap Enter VR to go back in.');
+  updateVRBar();
+});
+updateVRBar();
 
 // ---------------- AI opponent (practice mode) ----------------
 function aiTick(dt) {
