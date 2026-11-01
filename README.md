@@ -38,16 +38,46 @@ right-drag to look around.
   6 inches of the ground, and the lines are thin.
 * Drawings do not activate immediately: they stay plain white chalk until
   you have lifted the chalk for 3 seconds straight. Then they glow gold
-  and come alive — gold Chalklings, gold Lines of Warding, and gold Lines
-  of Forbiddance (a thin owner-coloured outline still shows whose a
+  and come alive (a thin owner-coloured outline still shows whose a
   Chalkling is). No circles are shown at the start of a game; circles
-  only appear as Wards you draw.
-* **Closed shape** → a Chalkling. It comes alive, wiggles across the arena
-  toward your opponent, and attacks their defences — then them.
-* **Big circle drawn around yourself** → a Line of Warding, your defensive ring.
-  A foe Chalkling must chew through it before it can reach you.
-* **Long straight line** → a Line of Forbiddance, a wall Chalklings must
-  break through.
+  only appear as defenses you draw.
+* **Start with your defense.** Draw a closed shape all the way around
+  yourself and it becomes your initial defense. A circle is strongest:
+  strength is measured by circularity (4π·area / perimeter²), so a
+  perfect circle has 1000 health, a square about 850, and a ragged shape
+  much less. No initial defense, no protection — draw it first.
+* **Later defenses must be attached to the first one.** A closed shape
+  touching your initial defense (or any defense piece) extends it, with
+  its own health from its own circularity. Anything closed and not
+  attached is a Chalkling, and wiggles off to attack.
+* **Tethered defenders.** Draw a line (a string/chain) out from your
+  initial defense, then a closed shape near its far end. That defender
+  hunts enemy Chalklings, deals its own damage to them, and takes damage
+  back — but it cannot move further from its anchor than its tether
+  allows. If your initial defense breaks, its extensions, tethers, and
+  defenders break with it.
+* **Chalkling strength comes from the drawing.**
+  * Speed is set by width and length (aspect ratio): long and thin is
+    fast, round is slow.
+  * A straight line pointed directly at your foe becomes a dart:
+    3.4 m/s, 10 damage a hit, eroding after 100 damage — so it takes
+    100 hits (ten darts, ten hits each) to break a perfect-circle defense.
+  * A perfect circle is very slow (about 0.55 m/s) but does 80 damage/s
+    and lasts 800 damage before it erodes.
+  * The more complex a shape (more sharp corners), the higher its damage
+    and its damage budget, between those extremes.
+* **Centre line = path.** Draw a line down through a Chalkling and it
+  follows that line, scaled up to fit between you and your foe. With no
+  centre line, it meanders generally toward your foe.
+* **Attacking a defense.** A Chalkling that reaches a defense meanders
+  along its perimeter, slowly erasing it (its gold fill fades as its
+  health falls), and does 1.5× damage at a corner or dip. A perfect
+  circle has no corners, so it just takes slight damage all the way
+  around. Chalklings degrade as they deal damage and disappear when
+  their damage budget is spent — more complex and more perfectly
+  circular Chalklings deal more damage before they degrade.
+* **Long straight line (not pointed at your foe)** → a Line of
+  Forbiddance, a wall Chalklings must break through.
 * **Grip / Squeeze** near a Chalkling to grab it, then release with a flick
   to throw it toward your opponent. A good throw gives it a burst of speed.
 * Chalk is a resource: drawing costs chalk, and it recharges over time.
@@ -70,23 +100,19 @@ Both headsets must be on a network that allows WebRTC peer connections
 
 * `index.html` — lobby, HUD, and page shell.
 * `game.js` — the whole game: Three.js + WebXR scene, chalk drawing and
-  shape classification, Chalklings, wards, walls, grabbing/throwing,
-  tournament rounds, the practice AI, and peer-to-peer multiplayer.
+  shape classification, Chalklings, defenses, tethered defenders, walls,
+  grabbing/throwing, tournament rounds, the practice AI, and peer-to-peer
+  multiplayer.
 * `style.css` — lobby and HUD styling.
-* `.github/workflows/pages.yml` — deploys this static site to GitHub Pages.
 
 ## GitHub Pages setup
 
 This repo is static, so Pages can serve it directly:
 
 1. On GitHub, go to **Settings → Pages**.
-2. Under **Build and deployment → Source**, choose **GitHub Actions**.
-3. Push to `main` (the workflow in `.github/workflows/pages.yml` runs
-   automatically) — the site appears at
+2. Under **Build and deployment → Source**, choose **Deploy from a branch**.
+3. Choose branch `main`, folder `/ (root)` — the site appears at
    `https://jenochjones.github.io/RythmatistVR/`.
-
-If you prefer the classic route instead, choose **Deploy from a branch**,
-branch `main`, folder `/ (root)`.
 
 ## Local testing
 
@@ -104,9 +130,10 @@ the hosted GitHub Pages URL is the recommended way to play on Quest.
 * Drawings are classified by simple geometry (closure, size, straightness),
   not by recognising specific Rithmatic figures — that keeps the game
   playable on Quest 2 without a heavy ML step.
-* Chalklings are simulated by their owner and their positions are synced
-  to the opponent, so a laggy connection may make a foe Chalkling look
-  slightly jumpy. Gameplay (damage, wards, walls) is still decided once,
-  by the Chalkling's owner.
+* Chalklings and defenders are simulated by their owner and their positions
+  are synced to the opponent, so a laggy connection may make a foe unit
+  look slightly jumpy. Gameplay (damage to defenses, walls, and units) is
+  still decided once, by the attacking unit's owner, and synced to the other
+  player in batched damage messages.
 * Ideas for later: named Rithmatic lines (Vigor, Making), chalkling
   variety by shape (fast small ones, slow tanky ones), and a spectator view.
