@@ -183,13 +183,14 @@ for (let i = 0; i < 2; i++) {
   grip.add(ctrlMesh, chalkMesh);
   const hand = {
     index: i, grip, controller, ctrlMesh, chalkMesh, tipMarker,
-    drawing: false, stroke: null, held: null,
-    lastGripPos: new THREE.Vector3(), gripVel: new THREE.Vector3(),
+    drawing: false, stroke: null,
   };
   controller.addEventListener('selectstart', () => { hand.chalkMesh.visible = true; hand.ctrlMesh.visible = false; startDraw(i); });
   controller.addEventListener('selectend', () => { hand.chalkMesh.visible = false; hand.ctrlMesh.visible = true; endDraw(i); });
-  controller.addEventListener('squeezestart', () => tryGrab(i));
-  controller.addEventListener('squeezeend', () => releaseGrab(i));
+  // No squeeze / grip handler, on purpose: a player cannot pick up or
+  // throw a Chalkling. Once a drawing activates, it acts on its own,
+  // and the player can only affect it by drawing new defenses or
+  // Chalklings. Squeezing a controller therefore does nothing.
   hands.push(hand);
 }
 
@@ -340,7 +341,7 @@ function endDesktopDraw() {
 }
 
 // ---------------- Game entities ----------------
-const chalklings = []; // {id, owner, pts, pos, group, scale, speed, dps, budget, path, phase, held, thrown, vel, hitCooldown, isRemote}
+const chalklings = []; // {id, owner, pts, pos, group, scale, speed, dps, budget, path, phase, hitCooldown, isRemote}
 const defenses = [];   // {id, owner, pts, centroid, health, maxHealth, circularity, isInitial, group, disc}
 const defenders = [];  // {id, owner, pts, pos, homePos, anchor, tetherLength, speed, dps, health, maxHealth, group, tether, phase, isRemote}
 const tethers = [];    // {id, owner, anchor, end, length, line, defenderId}
@@ -491,8 +492,7 @@ function spawnChalkling(owner, pts, opts = {}) {
     speed: stats.speed, dps: stats.dps, budget: stats.budget, maxBudget: stats.budget,
     path: opts.path || null, pathSeg: 0, pathDist: 0, perimeterT: 0, perimeterDir: 1,
     defenseDamageAccum: 0, defenseDamageTimer: 0, hitCooldown: 0,
-    phase: Math.random() * Math.PI * 2, held: false, thrown: false,
-    vel: new THREE.Vector3(), isRemote: false,
+    phase: Math.random() * Math.PI * 2, isRemote: false,
   };
   chalklings.push(ent);
   if (broadcast && state.mode === 'duel' && owner === state.playerIndex) {
@@ -735,38 +735,14 @@ function classifyStroke(stroke, owner, broadcast, presetPath = null) {
   setTimeout(() => stroke.dispose(), 45000);
 }
 
-// ---------------- Grab & throw ----------------
-function nearestChalklingTo(pos, maxDist = 2.0) {
-  let best = null, bestD = maxDist;
-  chalklings.forEach((c) => {
-    if (c.held) return;
-    const d = c.pos.distanceTo(pos);
-    if (d < bestD) { best = c; bestD = d; }
-  });
-  return best;
-}
-function tryGrab(handIndex) {
-  const hand = hands[handIndex];
-  const pos = new THREE.Vector3(); hand.grip.getWorldPosition(pos);
-  const c = nearestChalklingTo(pos);
-  if (!c) return;
-  c.held = true; c.thrown = false; hand.held = c;
-  if (state.mode === 'duel') send({ t: 'held', id: c.id, held: true });
-  toast('Grabbed a Chalkling — throw it toward your foe!');
-}
-function releaseGrab(handIndex) {
-  const hand = hands[handIndex];
-  if (!hand.held) return;
-  const c = hand.held;
-  c.held = false; hand.held = null;
-  const speed = hand.gripVel.length();
-  if (speed > 0.8) {
-    c.thrown = true;
-    c.vel.copy(hand.gripVel).multiplyScalar(1.4); c.vel.y = Math.max(1, hand.gripVel.y * 1.2);
-    c.group.position.y = Math.max(0.3, c.group.position.y);
-  }
-  if (state.mode === 'duel') send({ t: 'held', id: c.id, held: false, pos: [c.pos.x, c.pos.z] });
-}
+// ---------------- No direct interaction with Chalklings ----------------
+// Deliberately empty: there is no grab or throw. A player cannot pick a
+// Chalkling up, carry it, or throw it — in VR, on desktop, or over the
+// network. The only way to influence a Chalkling is indirectly, by
+// drawing defenses, tethered defenders, walls, or new Chalklings.
+// (The old squeeze-to-grab code and the 'held' network message were
+// removed here, in the main loop, and in updateChalkling, so no code
+// path can put a Chalkling in a player's hand.)
 
 // ---------------- Combat, rounds & tournament ----------------
 function foePos() { return state.mode === 'practice' ? foeGroup.position : (foePoseTarget || foeGroup.position); }
@@ -798,7 +774,6 @@ function clearEntities() {
   [...tethers].forEach((t) => { dynamicGroup.remove(t.line); tethers.splice(tethers.indexOf(t), 1); });
   [...walls].forEach((w) => { dynamicGroup.remove(w.mesh); walls.splice(walls.indexOf(w), 1); });
   clearPendingStrokes();
-  hands.forEach((h) => { h.held = null; });
 }
 function resetRound() {
   clearEntities();
@@ -835,18 +810,8 @@ function damageDefensePiece(c, d, dmg, dt) {
   return 'attacking';
 }
 function updateChalkling(c, dt, time) {
-  if (c.held) return;
-  if (c.thrown) {
-    c.vel.y -= 9.8 * dt;
-    c.group.position.addScaledVector(c.vel, dt);
-    c.pos.set(c.group.position.x, 0, c.group.position.z);
-    if (c.group.position.y <= 0) {
-      c.group.position.y = 0; c.thrown = false;
-      c.speed *= 1.4;
-      setTimeout(() => { c.speed /= 1.4; }, 2000);
-    }
-    return;
-  }
+  // No held/thrown state: a Chalkling is never carried, so it always
+  // moves under its own power (or its centre-line path).
   const targetIndex = 1 - c.owner;
   const targetPos = targetIndex === state.playerIndex ? rig.position : foePos();
   const toTarget = new THREE.Vector3().subVectors(targetPos, c.pos); toTarget.y = 0;
@@ -952,7 +917,7 @@ function updateChalkling(c, dt, time) {
 }
 function updateDefender(d, dt, time) {
   if (d.isRemote) return;
-  const enemies = chalklings.filter((c) => c.owner !== d.owner && !c.held);
+  const enemies = chalklings.filter((c) => c.owner !== d.owner);
   let target = null, best = Infinity;
   enemies.forEach((c) => { const dist = c.pos.distanceTo(d.pos); if (dist < best) { best = dist; target = c; } });
   let moveTarget = d.homePos, attacking = false;
@@ -1062,8 +1027,8 @@ function handleMessage(msg) {
     const c = chalklings.find((x) => x.id === msg.id);
     if (c && c.isRemote) c.pos.set(msg.p[0], 0, msg.p[1]);
   } else if (msg.t === 'held') {
-    const c = chalklings.find((x) => x.id === msg.id);
-    if (c) { c.held = msg.held; if (msg.pos) c.pos.set(msg.pos[0], 0, msg.pos[1]); }
+    // Ignored on purpose: the old grab message is no longer sent, and
+    // a stale one must never freeze a Chalkling in a player's hand.
   } else if (msg.t === 'damage') {
     applyDamage(msg.target, msg.amount);
   } else if (msg.t === 'remove') {
@@ -1314,14 +1279,6 @@ renderer.setAnimationLoop(() => {
         const p = groundPointFromGrip(hand);
         if (p) hand.stroke.add(p);
       }
-      // Track grip velocity for throws
-      const pos = new THREE.Vector3(); hand.grip.getWorldPosition(pos);
-      if (hand.held) {
-        hand.held.group.position.copy(pos);
-        hand.held.pos.set(pos.x, 0, pos.z);
-      }
-      hand.gripVel.copy(pos).sub(hand.lastGripPos).divideScalar(Math.max(dt, 0.001));
-      hand.lastGripPos.copy(pos);
     });
   }
 
@@ -1382,7 +1339,7 @@ renderer.setAnimationLoop(() => {
     camera.getWorldQuaternion(hq);
     const cs = hands.map((h) => { h.grip.getWorldPosition(hp); return [hp.x, hp.y, hp.z]; });
     send({ t: 'pose', p: [rig.position.x, rig.position.y, rig.position.z], h: [hq.x, hq.y, hq.z, hq.w], c: cs });
-    chalklings.filter((c) => c.owner === state.playerIndex && !c.held).forEach((c) => {
+    chalklings.filter((c) => c.owner === state.playerIndex).forEach((c) => {
       send({ t: 'chalklingPos', id: c.id, p: [c.pos.x, c.pos.z] });
     });
     defenders.filter((d) => d.owner === state.playerIndex).forEach((d) => {
