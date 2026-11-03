@@ -234,7 +234,7 @@ function makeBoard(text) {
   mesh.position.set(0, 3.4, 0);
   return mesh;
 }
-const board = makeBoard('Hold a trigger: your controller becomes chalk\nDraw on the ground, tip within 6 inches\nLift the chalk for 3 seconds to activate');
+const board = makeBoard('Hold a trigger: your controller becomes chalk\nDraw on the ground, tip within 6 inches\nLift the chalk for 1 second to activate');
 scene.add(board);
 
 // ---------------- Players / avatars ----------------
@@ -309,6 +309,14 @@ for (let i = 0; i < 2; i++) {
   const tipMarker = new THREE.Object3D();
   tipMarker.position.y = -0.29;
   chalkMesh.add(stick, tip, tipMarker);
+  // Angled chalk, not straight down: 45° down/forward and 20° to the
+  // left. With Three.js axes (+X right, -Z forward in grip space),
+  // rotation.x tilts the tip forward and rotation.z = -20° leans it
+  // left, so the tip sits down-forward-left of the controller bottom.
+  // The tip marker is a child of the chalk, so drawing follows the
+  // angled tip exactly.
+  chalkMesh.rotation.x = THREE.MathUtils.degToRad(45);
+  chalkMesh.rotation.z = THREE.MathUtils.degToRad(-20);
   chalkMesh.visible = false;
   grip.add(ctrlMesh, chalkMesh);
   const hand = {
@@ -373,7 +381,7 @@ class Ribbon {
       const d = b.clone().sub(a); d.y = 0;
       if (d.lengthSq() < 1e-6) d.set(1, 0, 0);
       d.normalize();
-      const perp = new THREE.Vector3(-d.z, 0, d.x).multiplyScalar(0.018); // thin chalk line: ~3.6 cm wide
+      const perp = new THREE.Vector3(-d.z, 0, d.x).multiplyScalar(0.010); // thinner chalk line: ~2.0 cm wide
       const p = this.pts[i];
       pos.push(p.x - perp.x, 0.03, p.z - perp.z, p.x + perp.x, 0.03, p.z + perp.z);
     }
@@ -409,15 +417,15 @@ class Ribbon {
 
 // Drawings do not activate the moment you lift the chalk. They sit as
 // plain white chalk until the chalk has been lifted continuously for
-// 3 seconds — only then do they come alive (gold, see below). Picking
-// the chalk up again before those 3 seconds are up restarts the count,
+// 1 second — only then do they come alive (gold, see below). Picking
+// the chalk up again before that second is up restarts the count,
 // so a batch of drawings activates together on the next clean lift.
-const ACTIVATION_LIFT_SECONDS = 3;
+const ACTIVATION_LIFT_SECONDS = 1;
 const pendingStrokes = []; // {stroke, owner, liftedSeconds}
 function queueStroke(stroke, owner) {
   if (!stroke || stroke.pts.length < 2) { if (stroke) stroke.dispose(); return; }
   pendingStrokes.push({ stroke, owner, liftedSeconds: 0 });
-  toast('Drawing set — keep the chalk lifted for 3 seconds to activate it.');
+  toast('Drawing set — keep the chalk lifted for 1 second to activate it.');
 }
 function resetPendingLift() {
   pendingStrokes.forEach((p) => { p.liftedSeconds = 0; });
@@ -472,7 +480,7 @@ function endDesktopDraw() {
 
 // ---------------- Game entities ----------------
 const chalklings = []; // {id, owner, pts, pos, group, scale, speed, dps, budget, path, phase, hitCooldown, isRemote}
-const defenses = [];   // {id, owner, pts, centroid, health, maxHealth, circularity, isInitial, group, disc}
+const defenses = [];   // {id, owner, pts, centroid, health, maxHealth, circularity, isInitial, group}
 const defenders = [];  // {id, owner, pts, pos, homePos, anchor, tetherLength, speed, dps, health, maxHealth, group, tether, phase, isRemote}
 const tethers = [];    // {id, owner, anchor, end, length, line, defenderId}
 const walls = [];      // {id, owner, a, b, health, mesh}
@@ -592,29 +600,31 @@ function clampPlayerToInitialDefense(pos, owner) {
   pos.copy(onPer);
 }
 
-function shapeMeshFromPts(pts, color) {
-  const c = new THREE.Vector3();
-  pts.forEach((p) => c.add(p)); c.multiplyScalar(1 / pts.length);
-  const shape = new THREE.Shape();
-  pts.forEach((p, i) => {
-    const x = p.x - c.x, y = -(p.z - c.z);
-    if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
-  });
-  shape.closePath();
-  const geo = new THREE.ShapeGeometry(shape);
-  geo.rotateX(-Math.PI / 2);
-  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }));
-  mesh.position.y = 0.04;
-  return { mesh, centroid: c };
-}
-
 const GOLD = 0xffd700; // active drawings glow gold, whatever their owner
-function goldOutline(pts, centroid, owner) {
-  const outlinePts = pts.map((p) => new THREE.Vector3(p.x - centroid.x, 0.06, p.z - centroid.z));
-  return new THREE.LineLoop(
-    new THREE.BufferGeometry().setFromPoints(outlinePts),
-    new THREE.LineBasicMaterial({ color: COLORS[owner] })
-  );
+// No fill: a completed drawing is just its lines, glowing gold.
+// The main gold line is the drawing itself, a fainter gold halo
+// around it gives the glow, and a thin owner-coloured line underneath
+// (kept for duels, so you can still tell whose drawing it is) is the
+// only other line. Nothing is filled in.
+function goldGlowLines(pts, centroid, owner) {
+  const group = new THREE.Group();
+  const rel = pts.map((p) => new THREE.Vector3(p.x - centroid.x, 0, p.z - centroid.z));
+  const mk = (points, color, opacity) => {
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+    mat.userData.baseOpacity = opacity;
+    return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points), mat);
+  };
+  group.add(mk(rel.map((p) => new THREE.Vector3(p.x, 0.07, p.z)), GOLD, 1.0));
+  group.add(mk(rel.map((p) => new THREE.Vector3(p.x * 1.06, 0.05, p.z * 1.06)), GOLD, 0.30));
+  group.add(mk(rel.map((p) => new THREE.Vector3(p.x, 0.04, p.z)), COLORS[owner], 0.85));
+  return group;
+}
+function setDefenseGlow(d) {
+  // As a defense is erased, its gold lines fade (owner line fades too).
+  const f = Math.max(0.05, Math.max(0, d.health) / d.maxHealth);
+  d.group.traverse((o) => {
+    if (o.material && o.material.userData.baseOpacity !== undefined) o.material.opacity = o.material.userData.baseOpacity * f;
+  });
 }
 function spawnChalkling(owner, pts, opts = {}) {
   const id = opts.id || uid(), broadcast = opts.broadcast !== false, isLine = !!opts.isLine;
@@ -630,20 +640,26 @@ function spawnChalkling(owner, pts, opts = {}) {
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), new THREE.MeshBasicMaterial({ color: GOLD }));
     head.position.copy(linePts[linePts.length - 1]); group.add(head);
   } else {
-    const { mesh } = shapeMeshFromPts(pts, GOLD);
-    group.add(mesh, goldOutline(pts, centroid, owner));
-    // No eyes: a Chalkling is just its gold shape and owner outline.
+    group.add(goldGlowLines(pts, centroid, owner));
+    // No eyes, no fill: a Chalkling is just its gold glowing lines.
   }
   group.position.copy(centroid); group.position.y = 0;
   dynamicGroup.add(group);
   const maxR = Math.max(...pts.map((p) => Math.hypot(p.x - centroid.x, p.z - centroid.z)));
   const scale = THREE.MathUtils.clamp(0.5 + maxR * 0.35, 0.5, 1.25);
   group.scale.setScalar(scale);
+  // If this Chalkling was drawn inside its owner's initial defense, it
+  // must wiggle out through that perimeter on activation — your own
+  // defense never blocks your own Chalklings. The flag clears the
+  // moment it is outside that perimeter.
+  const ownInitial = initialDefenseOf(owner);
+  const exitingOwnDefense = !!(ownInitial && pointInPolygon(centroid, ownInitial.pts));
   const ent = {
     id, owner, pts, pos: centroid.clone(), group, scale, stats,
     speed: stats.speed, dps: stats.dps, budget: stats.budget, maxBudget: stats.budget,
     path: opts.path || null, pathSeg: 0, pathDist: 0, perimeterT: 0, perimeterDir: 1,
     defenseDamageAccum: 0, defenseDamageTimer: 0, hitCooldown: 0,
+    exitingOwnDefense,
     phase: Math.random() * Math.PI * 2, isRemote: false,
   };
   chalklings.push(ent);
@@ -663,13 +679,10 @@ function spawnDefensePiece(owner, pts, isInitial, opts = {}) {
   const health = opts.health !== undefined ? opts.health : (isInitial ? 300 + circ * 700 : 200 + circ * 600);
   const centroid = new THREE.Vector3();
   pts.forEach((p) => centroid.add(p)); centroid.multiplyScalar(1 / pts.length);
-  const { mesh } = shapeMeshFromPts(pts, GOLD);
-  mesh.material = new THREE.MeshBasicMaterial({ color: GOLD, transparent: true, opacity: 0.18, side: THREE.DoubleSide });
-  const group = new THREE.Group();
-  group.add(mesh, goldOutline(pts, centroid, owner));
+  const group = goldGlowLines(pts, centroid, owner);
   group.position.copy(centroid); group.position.y = 0;
   dynamicGroup.add(group);
-  const ent = { id, owner, pts: pts.map((p) => p.clone()), centroid: centroid.clone(), health, maxHealth: health, circularity: circ, isInitial, group, disc: mesh };
+  const ent = { id, owner, pts: pts.map((p) => p.clone()), centroid: centroid.clone(), health, maxHealth: health, circularity: circ, isInitial, group };
   defenses.push(ent);
   if (broadcast && state.mode === 'duel' && owner === state.playerIndex) {
     send({ t: 'spawn', kind: 'defense', id, owner, pts: pts.map((p) => [p.x, p.z]), isInitial, health, circularity: circ });
@@ -714,10 +727,8 @@ function spawnDefender(owner, pts, tether, opts = {}) {
   const stats = opts.stats || shapeStats(pts, false);
   const centroid = new THREE.Vector3();
   pts.forEach((p) => centroid.add(p)); centroid.multiplyScalar(1 / pts.length);
-  const { mesh } = shapeMeshFromPts(pts, GOLD);
-  const group = new THREE.Group();
-  group.add(mesh, goldOutline(pts, centroid, owner));
-  // Defenders use the same eyeless look as Chalklings.
+  const group = goldGlowLines(pts, centroid, owner);
+  // Defenders use the same eyeless, unfilled, gold-glow look as Chalklings.
   group.position.copy(centroid); group.position.y = 0;
   dynamicGroup.add(group);
   const maxR = Math.max(...pts.map((p) => Math.hypot(p.x - centroid.x, p.z - centroid.z)));
@@ -819,6 +830,17 @@ function classifyStroke(stroke, owner, broadcast, presetPath = null) {
       toast(owner === state.playerIndex ? `Initial defense raised! ${statsText('Defense', { ...shapeStats(pts, false), dps: 0, budget: ent.maxHealth })} — health ${ent.maxHealth.toFixed(0)}. You cannot leave this perimeter.` : 'Your foe raised an initial defense.');
       return;
     }
+    // 1b) A defense drawn inside your initial perimeter, around yourself:
+    // a second, inner layer. Because you cannot leave your first
+    // perimeter, defenses must be drawable inside it — a shape that
+    // encloses you is a defense, never a Chalkling, even if it does
+    // not touch the initial defense.
+    if (pointInPolygon(myPos, pts)) {
+      const ent = spawnDefensePiece(owner, pts, false, { broadcast });
+      stroke.dispose();
+      toast(owner === state.playerIndex ? `Inner defense raised inside your perimeter! Health ${ent.maxHealth.toFixed(0)} (circularity ${(ent.circularity * 100).toFixed(0)}%).` : 'Your foe raised an inner defense.');
+      return;
+    }
     // 2) A shape at the end of a tether: a tethered defender.
     const tether = tethers.find((t) => t.owner === owner && !t.defenderId && (centroid.distanceTo(t.end) < 1.2 || distToPolygon(t.end, pts).dist < 0.5));
     if (tether) {
@@ -835,11 +857,14 @@ function classifyStroke(stroke, owner, broadcast, presetPath = null) {
       toast(owner === state.playerIndex ? `Defense extended! Health ${ent.maxHealth.toFixed(0)} (circularity ${(ent.circularity * 100).toFixed(0)}%).` : 'Your foe extended a defense.');
       return;
     }
-    // 4) Anything closed and not attached is a Chalkling.
+    // 4) Anything closed and not attached is a Chalkling. Drawn inside
+    // your initial defense, it wiggles out through your own perimeter
+    // on activation (see spawnChalkling / updateChalkling) — you do
+    // not need to draw it outside, which you cannot reach anyway.
     const ent = spawnChalkling(owner, pts, { broadcast, path: presetPath });
     if (!ent) { stroke.dispose(); return; }
     stroke.dispose();
-    toast(owner === state.playerIndex ? `A Chalkling stirs! ${statsText('Chalkling', ent.stats)}` : 'A foe Chalkling is on its way!');
+    toast(owner === state.playerIndex ? `A Chalkling stirs! ${statsText('Chalkling', ent.stats)}${ent.exitingOwnDefense ? ' Drawn inside your defense — it will wiggle out through your perimeter.' : ''}` : 'A foe Chalkling is on its way!');
     return;
   }
   // Lines, in order: centre line, tether, straight dart, wall.
@@ -950,7 +975,7 @@ function distToSegment(p, a, b) {
 
 function damageDefensePiece(c, d, dmg, dt) {
   d.health -= dmg;
-  if (d.disc && d.disc.material) d.disc.material.opacity = Math.max(0.02, 0.18 * Math.max(0, d.health) / d.maxHealth);
+  setDefenseGlow(d);
   c.budget -= dmg;
   c.defenseDamageAccum += dmg; c.defenseDamageTimer += dt;
   if (state.mode === 'duel' && c.owner === state.playerIndex && c.defenseDamageTimer >= 0.5) {
@@ -970,6 +995,35 @@ function updateChalkling(c, dt, time) {
   const dist = toTarget.length();
   if (dist < 0.001) return;
   const dir = toTarget.clone().normalize();
+
+  // Exiting your own initial defense: if this Chalkling was drawn
+  // inside it, it wiggles straight out through your own perimeter
+  // (your own defense never blocks it) before it does anything else.
+  if (c.exitingOwnDefense && !c.path) {
+    const own = initialDefenseOf(c.owner);
+    if (!own || !pointInPolygon(c.pos, own.pts)) {
+      c.exitingOwnDefense = false;
+    } else {
+      const perp = new THREE.Vector3(-dir.z, 0, dir.x);
+      const wiggle = Math.sin(time * 7 + c.phase) * 0.35;
+      const meander = Math.sin(time * 0.8 + c.phase) * 0.35;
+      c.pos.addScaledVector(dir, c.speed * dt);
+      c.pos.addScaledVector(perp, meander * c.speed * dt * 0.5);
+      c.group.position.set(c.pos.x + perp.x * wiggle * 0.35, Math.abs(Math.sin(time * 7 + c.phase)) * 0.06, c.pos.z + perp.z * wiggle * 0.35);
+      c.group.rotation.y = Math.atan2(dir.x, dir.z) + Math.sin(time * 7 + c.phase) * 0.25;
+      return;
+    }
+  } else if (c.exitingOwnDefense && c.path) {
+    const own = initialDefenseOf(c.owner);
+    if (!own || !pointInPolygon(c.pos, own.pts)) c.exitingOwnDefense = false;
+    // With a centre-line path, the path itself carries it out, so
+    // fall through to path following below once it is outside.
+    if (c.exitingOwnDefense) {
+      // Path following is below; do not let foe defenses stop it
+      // while it is still inside its own perimeter — the path
+      // branch will move it, and the flag clears once it is out.
+    }
+  }
 
   // Blocked by a foe wall?
   for (const w of walls.filter((x) => x.owner === targetIndex)) {
@@ -1164,7 +1218,7 @@ function handleMessage(msg) {
     const d = defenses.find((x) => x.id === msg.id);
     if (d) {
       d.health -= msg.amount;
-      if (d.disc && d.disc.material) d.disc.material.opacity = Math.max(0.02, 0.18 * Math.max(0, d.health) / d.maxHealth);
+      setDefenseGlow(d);
     }
   } else if (msg.t === 'chalklingDamage') {
     const c = chalklings.find((x) => x.id === msg.id);
