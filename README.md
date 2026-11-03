@@ -15,18 +15,29 @@ Not affiliated with the author or publisher.
 **On Quest 2+:**
 
 1. Open the link above in the Meta Quest Browser.
-2. Choose **Practice vs Chalk AI** for solo play, or **Host a Duel** /
-   **Join a Duel** for a 2-player match.
+2. The start page is deliberately simple: just the mode buttons. Choose
+   **Practice vs Chalk AI** for solo play, **Testing Mode** to try
+   drawings against an opponent who does not draw, **Tutorial** for
+   the full instructions, or **Host a Duel** / **Join a Duel** for a
+   2-player match.
 3. Tap **Enter VR (Quest 2+)** and allow VR. The page starts in 2D —
    that is normal. If you start a game in 2D first, the **Enter VR**
    button stays in the bottom-right corner, so you can switch into VR
    at any time, and **Exit VR** brings you back to 2D.
 4. You spawn 100 feet (30.48 m) from your opponent, facing each other.
 
-**On desktop (for testing):**
+**On desktop:**
 
 Drag with the mouse to draw, WASD to move, Q / E to turn,
-right-drag to look around.
+right-drag to look around. Full controls and rules are in the in-game
+**Tutorial** (from the start page), not on the start page itself.
+
+**Testing Mode:**
+
+Choose **Testing Mode** from the start page and your opponent stands
+still and does not draw — no defenses, no Chalklings, no attacks.
+Use it to try out drawings, test how a shape moves and hits, and see
+how much damage it does, without anything coming back at you.
 
 ## How a duel works — tournament style
 
