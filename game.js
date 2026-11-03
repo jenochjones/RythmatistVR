@@ -1118,7 +1118,7 @@ function updateHUD() {
   $('chalk-foe').style.width = `${state.chalk[foe]}%`;
   $('score-you').textContent = state.scores[you];
   $('score-foe').textContent = state.scores[foe];
-  $('foe-label').textContent = state.mode === 'practice' ? 'CHALK AI' : 'OPPONENT';
+  $('foe-label').textContent = state.mode === 'practice' ? 'CHALK AI' : state.mode === 'testing' ? 'TEST DUMMY' : 'OPPONENT';
 }
 function setStatus(msg) { $('status').textContent = msg; }
 
@@ -1303,11 +1303,36 @@ $('btn-practice').onclick = () => {
   state.mode = 'practice'; state.playerIndex = 0;
   const setName = advanceSet();
   $('lobby').classList.add('hidden');
+  $('tutorial').classList.add('hidden');
   updateVRBar();
   resetRound();
   setStatus(`Practice — set: ${setName}. The Chalk AI will draw against you.`);
   toast(`Practice mode — set: ${setName}. Draw a closed shape around yourself first for your defense.`);
 };
+$('btn-testing').onclick = () => {
+  // Testing mode: the opponent stands still and does not draw at all —
+  // no defenses, no Chalklings, no attacks. aiTick only runs in practice
+  // mode, so in testing mode the dummy simply stays at its spawn point
+  // while you try out your drawings against it.
+  state.mode = 'testing'; state.playerIndex = 0;
+  const setName = advanceSet();
+  $('lobby').classList.add('hidden');
+  $('tutorial').classList.add('hidden');
+  updateVRBar();
+  resetRound();
+  setStatus(`Testing — set: ${setName}. Your opponent will not draw.`);
+  toast(`Testing mode — set: ${setName}. Your opponent will not draw. Try your defenses and Chalklings against it.`);
+};
+$('btn-tutorial').onclick = () => {
+  $('lobby').classList.add('hidden');
+  $('tutorial').classList.remove('hidden');
+};
+$('btn-tutorial-back').onclick = () => {
+  $('tutorial').classList.add('hidden');
+  $('lobby').classList.remove('hidden');
+};
+$('btn-tutorial-practice').onclick = () => { $('tutorial').classList.add('hidden'); $('btn-practice').click(); };
+$('btn-tutorial-testing').onclick = () => { $('tutorial').classList.add('hidden'); $('btn-testing').click(); };
 $('btn-host').onclick = () => {
   if (typeof Peer === 'undefined') { $('lobby-error').textContent = 'Networking library failed to load — check your connection and reload.'; return; }
   const code = makeCode();
