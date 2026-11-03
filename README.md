@@ -51,12 +51,22 @@ how much damage it does, without anything coming back at you.
   (about 2 cm wide). There are no instructions inside gameplay — the
   arena shows no how-to board, and how-to toasts are gone; instructions
   live only in the Tutorial on the start page.
-* Drawings do not activate immediately: they stay plain white chalk until
-  you have lifted the chalk for 1 second straight. Then their lines
-  glow gold and they come alive — completed drawings are not filled in,
-  just the lines glowing gold (a thin owner-coloured line underneath
-  still shows whose a Chalkling is). No circles are shown at the start
-  of a game; circles only appear as defenses you draw.
+* Drawings do not activate immediately: they stay plain white chalk for
+  1 second after you finish drawing them. Then their lines glow gold
+  and they come alive — even if you start drawing something else right
+  away (each drawing has its own 1-second timer; drawing again does
+  not reset a drawing that is already waiting). Completed drawings are
+  not filled in, just the lines glowing gold (a thin owner-coloured line
+  underneath still shows whose a Chalkling is). No circles are shown at
+  the start of a game; circles only appear as defenses you draw.
+* **Cloth to erase your own drawings.** Hold chalk in one hand (trigger
+  held), then press the trigger on the other hand — that hand gets a
+  light-blue cloth, not a second piece of chalk. Rub the cloth on the
+  ground over one of your own drawings to erase it: pending white
+  chalk, Chalklings, defenses, defenders, tethers, and walls you drew.
+  It never erases your foe's drawings, and it only erases when the cloth
+  is near the ground (under 0.5 m). On desktop, Shift + drag erases
+  instead of drawing.
 * **Start with your defense.** Draw a closed shape all the way around
   yourself and it becomes your initial defense. You cannot leave this
   first perimeter: once it exists, you can move only inside it (you
