@@ -219,23 +219,9 @@ function applySet(index) {
 function advanceSet() { return applySet(setIndex + 1); }
 applySet(setIndex);
 
-// Floating instruction board above the centre (visible at spawn, fades in use)
-function makeBoard(text) {
-  const c = document.createElement('canvas'); c.width = 1024; c.height = 256;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = 'rgba(10,14,20,0.85)'; ctx.fillRect(0, 0, 1024, 256);
-  ctx.fillStyle = '#f5f0dc'; ctx.font = 'bold 44px system-ui'; ctx.textAlign = 'center';
-  text.split('\n').forEach((line, i) => ctx.fillText(line, 512, 90 + i * 60));
-  const tex = new THREE.CanvasTexture(c);
-  const mesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(10, 2.5),
-    new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide })
-  );
-  mesh.position.set(0, 3.4, 0);
-  return mesh;
-}
-const board = makeBoard('Hold a trigger: your controller becomes chalk\nDraw on the ground, tip within 6 inches\nLift the chalk for 1 second to activate');
-scene.add(board);
+// No instruction board inside gameplay: instructions live only in
+// the Tutorial on the start page. The arena itself shows no
+// how-to text, only the HUD, status, and event toasts.
 
 // ---------------- Players / avatars ----------------
 let yaw = Math.PI; // player 0 faces +Z, toward the foe
@@ -290,31 +276,36 @@ for (let i = 0; i < 2; i++) {
     new THREE.MeshStandardMaterial({ color: 0x1c1f24, roughness: 0.6 })
   );
   ctrlMesh.add(body);
-  // The piece of chalk (shown while the trigger is held). It points DOWN
-  // from the controller, not forward: the blunt top of the chalk sits
-  // against the bottom of the controller and the writing tip sticks out
-  // below it, like holding a piece of chalk in your fist to write on
-  // the ground. A tip marker tracks exactly where that tip is in the world.
+  // The piece of chalk, held like a pencil in the hand. The previous
+  // version only tilted the chalk around the grip origin while hiding
+  // the controller, so the angle was hard to see and the tip stayed
+  // close under the controller — it looked like it had not moved.
+  // Now the controller stays visible (it is the hand proxy), and the
+  // chalk is a longer pencil held in it: its blunt end is at the
+  // controller, its tip sits forward, left, and below the controller,
+  // with the shaft angled 45° down/forward and 20° left, like writing
+  // on the ground with a pencil. A tip marker tracks exactly where
+  // that tip is in the world, so drawing follows the pencil tip.
   const chalkMesh = new THREE.Group();
   const stick = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.018, 0.018, 0.22, 10),
+    new THREE.CylinderGeometry(0.018, 0.018, 0.32, 10),
     new THREE.MeshStandardMaterial({ color: 0xf5f0dc, roughness: 1 })
   );
-  stick.position.y = -0.13;
+  stick.position.y = -0.18;
   const tip = new THREE.Mesh(
     new THREE.ConeGeometry(0.018, 0.05, 10),
     new THREE.MeshStandardMaterial({ color: 0xf5f0dc, roughness: 1 })
   );
-  tip.rotation.x = Math.PI; tip.position.y = -0.265;
+  tip.rotation.x = Math.PI; tip.position.y = -0.365;
   const tipMarker = new THREE.Object3D();
-  tipMarker.position.y = -0.29;
+  tipMarker.position.y = -0.40;
   chalkMesh.add(stick, tip, tipMarker);
-  // Angled chalk, not straight down: 45° down/forward and 20° to the
-  // left. With Three.js axes (+X right, -Z forward in grip space),
-  // rotation.x tilts the tip forward and rotation.z = -20° leans it
-  // left, so the tip sits down-forward-left of the controller bottom.
-  // The tip marker is a child of the chalk, so drawing follows the
-  // angled tip exactly.
+  // Grip space: +X right, -Z forward. Position the pencil forward,
+  // left, and below the grip, then tilt it 45° down/forward and
+  // 20° left, so the tip ends up about 0.35 m forward-left and
+  // 0.37 m below the grip — a pencil in the hand, not a stick
+  // straight out of the controller bottom.
+  chalkMesh.position.set(-0.04, -0.08, -0.08);
   chalkMesh.rotation.x = THREE.MathUtils.degToRad(45);
   chalkMesh.rotation.z = THREE.MathUtils.degToRad(-20);
   chalkMesh.visible = false;
@@ -323,8 +314,8 @@ for (let i = 0; i < 2; i++) {
     index: i, grip, controller, ctrlMesh, chalkMesh, tipMarker,
     drawing: false, stroke: null,
   };
-  controller.addEventListener('selectstart', () => { hand.chalkMesh.visible = true; hand.ctrlMesh.visible = false; startDraw(i); });
-  controller.addEventListener('selectend', () => { hand.chalkMesh.visible = false; hand.ctrlMesh.visible = true; endDraw(i); });
+  controller.addEventListener('selectstart', () => { hand.chalkMesh.visible = true; startDraw(i); });
+  controller.addEventListener('selectend', () => { hand.chalkMesh.visible = false; endDraw(i); });
   // No squeeze / grip handler, on purpose: a player cannot pick up or
   // throw a Chalkling. Once a drawing activates, it acts on its own,
   // and the player can only affect it by drawing new defenses or
@@ -425,7 +416,7 @@ const pendingStrokes = []; // {stroke, owner, liftedSeconds}
 function queueStroke(stroke, owner) {
   if (!stroke || stroke.pts.length < 2) { if (stroke) stroke.dispose(); return; }
   pendingStrokes.push({ stroke, owner, liftedSeconds: 0 });
-  toast('Drawing set — keep the chalk lifted for 1 second to activate it.');
+  toast('Drawing set.');
 }
 function resetPendingLift() {
   pendingStrokes.forEach((p) => { p.liftedSeconds = 0; });
@@ -565,7 +556,13 @@ function shapeStats(pts, isLine) {
 function statsText(kind, s) {
   return `${kind}: speed ${s.speed.toFixed(1)} m/s, ${s.dps.toFixed(0)} damage/s, lasts ${s.budget.toFixed(0)} damage, circularity ${(s.circularity * 100).toFixed(0)}%, complexity ${(s.complexity * 100).toFixed(0)}%`;
 }
-function shapesTouch(aPts, bPts, maxGap = 0.5) {
+function shapesTouch(aPts, bPts, maxGap = 0.15) {
+  // Physical connection, not just nearby: a new line counts as part
+  // of a defense only if its drawn line actually touches a perimeter
+  // defense line (within ~15 cm, about the drawn line width plus
+  // hand jitter). A shape up to half a metre away used to count as
+  // attached — that is no longer enough. If it does not connect,
+  // it is a Chalkling, not a defense.
   for (const p of aPts) if (distToPolygon(p, bPts).dist < maxGap) return true;
   for (const p of bPts) if (distToPolygon(p, aPts).dist < maxGap) return true;
   return false;
@@ -830,17 +827,11 @@ function classifyStroke(stroke, owner, broadcast, presetPath = null) {
       toast(owner === state.playerIndex ? `Initial defense raised! ${statsText('Defense', { ...shapeStats(pts, false), dps: 0, budget: ent.maxHealth })} — health ${ent.maxHealth.toFixed(0)}. You cannot leave this perimeter.` : 'Your foe raised an initial defense.');
       return;
     }
-    // 1b) A defense drawn inside your initial perimeter, around yourself:
-    // a second, inner layer. Because you cannot leave your first
-    // perimeter, defenses must be drawable inside it — a shape that
-    // encloses you is a defense, never a Chalkling, even if it does
-    // not touch the initial defense.
-    if (pointInPolygon(myPos, pts)) {
-      const ent = spawnDefensePiece(owner, pts, false, { broadcast });
-      stroke.dispose();
-      toast(owner === state.playerIndex ? `Inner defense raised inside your perimeter! Health ${ent.maxHealth.toFixed(0)} (circularity ${(ent.circularity * 100).toFixed(0)}%).` : 'Your foe raised an inner defense.');
-      return;
-    }
+    // No inner-defense exception: a shape around yourself inside your
+    // initial perimeter is a defense only if it physically connects
+    // to a perimeter defense line (branch 3 below). If it does not
+    // connect, it falls through to branch 4 and becomes a Chalkling,
+    // which then wiggles out through your perimeter.
     // 2) A shape at the end of a tether: a tethered defender.
     const tether = tethers.find((t) => t.owner === owner && !t.defenderId && (centroid.distanceTo(t.end) < 1.2 || distToPolygon(t.end, pts).dist < 0.5));
     if (tether) {
@@ -849,18 +840,21 @@ function classifyStroke(stroke, owner, broadcast, presetPath = null) {
       toast(owner === state.playerIndex ? `Tethered defender raised! It can roam ${tether.length.toFixed(1)} m from your defense. ${statsText('Defender', ent.stats)}` : 'Your foe raised a tethered defender.');
       return;
     }
-    // 3) A shape attached to an existing defense: a defense extension.
+    // 3) A shape physically connected to an existing defense: a defense
+    // extension. The drawn line must touch a perimeter defense line
+    // (shapesTouch, ~15 cm). Nearby is not enough.
     const attached = defenses.find((d) => d.owner === owner && shapesTouch(pts, d.pts));
     if (attached) {
       const ent = spawnDefensePiece(owner, pts, false, { broadcast });
       stroke.dispose();
-      toast(owner === state.playerIndex ? `Defense extended! Health ${ent.maxHealth.toFixed(0)} (circularity ${(ent.circularity * 100).toFixed(0)}%).` : 'Your foe extended a defense.');
+      toast(owner === state.playerIndex ? `Defense extended — your line connected to your perimeter! Health ${ent.maxHealth.toFixed(0)} (circularity ${(ent.circularity * 100).toFixed(0)}%).` : 'Your foe extended a defense.');
       return;
     }
-    // 4) Anything closed and not attached is a Chalkling. Drawn inside
-    // your initial defense, it wiggles out through your own perimeter
-    // on activation (see spawnChalkling / updateChalkling) — you do
-    // not need to draw it outside, which you cannot reach anyway.
+    // 4) Anything closed and not connected to a defense is a Chalkling,
+    // even if it was drawn inside your perimeter or around you. Drawn
+    // inside your initial defense, it wiggles out through your own
+    // perimeter on activation (see spawnChalkling / updateChalkling)
+    // — you do not need to draw it outside, which you cannot reach anyway.
     const ent = spawnChalkling(owner, pts, { broadcast, path: presetPath });
     if (!ent) { stroke.dispose(); return; }
     stroke.dispose();
@@ -884,7 +878,7 @@ function classifyStroke(stroke, owner, broadcast, presetPath = null) {
     initial.pts.forEach((p) => { const d = p.distanceTo(a); if (d < best) { best = d; anchor = p; } });
     spawnTether(owner, anchor, b, { broadcast });
     stroke.dispose();
-    toast(owner === state.playerIndex ? 'Tether drawn — now draw a closed shape near its far end to make a defender.' : 'Your foe drew a tether.');
+    toast(owner === state.playerIndex ? 'Tether drawn.' : 'Your foe drew a tether.');
     return;
   }
   const dir = new THREE.Vector3().subVectors(b, a); dir.y = 0;
@@ -1361,7 +1355,7 @@ $('btn-practice').onclick = () => {
   updateVRBar();
   resetRound();
   setStatus(`Practice — set: ${setName}. The Chalk AI will draw against you.`);
-  toast(`Practice mode — set: ${setName}. Draw a closed shape around yourself first for your defense.`);
+  toast(`Practice mode — set: ${setName}.`);
 };
 $('btn-testing').onclick = () => {
   // Testing mode: the opponent stands still and does not draw at all —
@@ -1375,7 +1369,7 @@ $('btn-testing').onclick = () => {
   updateVRBar();
   resetRound();
   setStatus(`Testing — set: ${setName}. Your opponent will not draw.`);
-  toast(`Testing mode — set: ${setName}. Your opponent will not draw. Try your defenses and Chalklings against it.`);
+  toast(`Testing mode — set: ${setName}. Your opponent will not draw.`);
 };
 $('btn-tutorial').onclick = () => {
   $('lobby').classList.add('hidden');
