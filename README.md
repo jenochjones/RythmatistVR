@@ -43,11 +43,14 @@ how much damage it does, without anything coming back at you.
 
 * Best of 3 rounds. Win a round by dropping your opponent to 0 health.
   First to 2 rounds wins the match.
-* **Hold a trigger** and the controller in that hand becomes a piece of chalk.
-  The chalk is angled from the bottom of the controller — 45° down and
-  20° to the left, blunt end against the controller and tip below it.
-  It only draws while the tip is within 6 inches of the ground, and the
-  lines are thin (about 2 cm wide).
+* **Hold a trigger** and the controller in that hand becomes a piece of chalk,
+  held like a pencil: the controller stays visible, and a longer pencil
+  sits in it, blunt end at the controller and tip forward, left, and
+  below it, angled 45° down and 20° to the left. It only draws while
+  the tip is within 6 inches of the ground, and the lines are thin
+  (about 2 cm wide). There are no instructions inside gameplay — the
+  arena shows no how-to board, and how-to toasts are gone; instructions
+  live only in the Tutorial on the start page.
 * Drawings do not activate immediately: they stay plain white chalk until
   you have lifted the chalk for 1 second straight. Then their lines
   glow gold and they come alive — completed drawings are not filled in,
@@ -63,14 +66,15 @@ how much damage it does, without anything coming back at you.
   perfect circle has 1000 health, a square about 850, and a ragged shape
   much less. No initial defense, no protection — draw it first.
 * **Draw inside your perimeter.** You cannot leave your first perimeter,
-  so draw everything inside it. A closed shape around yourself inside
-  it becomes an inner defense layer. **Later defenses must be attached
-  to the first one** unless they enclose you: a closed shape touching
-  your initial defense (or any defense piece) extends it, with its own
-  health from its own circularity. Anything closed and not attached,
-  and not around you, is a Chalkling — and if it was drawn inside your
-  initial defense, it wiggles out through your own perimeter on
-  activation. Your own defense never blocks your own Chalklings.
+  so draw everything inside it. **Later defenses must physically
+  connect to a perimeter defense line:** a closed shape becomes part
+  of your defense only if its drawn line actually touches (within
+  about 15 cm of) your initial defense or another defense piece.
+  Nearby is not enough. Anything closed and not connected is a
+  Chalkling, even if it was drawn inside your perimeter or around
+  you — and if it was drawn inside your initial defense, it wiggles
+  out through your own perimeter on activation. Your own defense
+  never blocks your own Chalklings.
 * **Tethered defenders.** Draw a line (a string/chain) out from your
   initial defense, then a closed shape near its far end. That defender
   hunts enemy Chalklings, deals its own damage to them, and takes damage
