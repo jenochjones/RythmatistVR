@@ -57,30 +57,14 @@
     <p class="tagline">Duel of Chalklings &mdash; a tournament duel, drawn in chalk.</p>
     <p class="intro">
       You and your opponent start <strong>100 feet apart</strong> in a chalk arena.
-      Hold a trigger and your controller becomes a piece of chalk. Draw on the ground,
-      and your drawings come alive.
     </p>
-
-    <div class="howto">
-      <div><b>First: draw your defense all the way around yourself</b><span>a closed shape that encloses you becomes your initial defense. A circle is strongest — the closer to a perfect circle, the more health it has (a perfect circle has 1000). You cannot leave this first perimeter: once it exists, you can move only inside it, sliding along its inside edge. If it breaks, you can move freely again until you draw a new one.</span></div>
-      <div><b>Scenery rotates each match</b><span>each time you start a match, the set changes: The Stage, then The Park, then The Roman Coliseum, then back to The Stage. In a duel, the host's set is used so both players see the same scenery.</span></div>
-      <div><b>Chalklings have no eyes</b><span>a Chalkling is just its gold shape and owner-coloured outline — no face.</span></div>
-      <div><b>Later defenses must touch that first one</b><span>a closed shape attached to your initial defense extends it. Anything closed and not attached is a Chalkling, and wiggles off to attack.</span></div>
-      <div><b>Tethered defenders</b><span>draw a line out from your defense (a string/chain), then a closed shape near its far end. That defender hunts enemy Chalklings, but cannot go further than its tether allows.</span></div>
-      <div><b>Chalkling strength comes from the drawing</b><span>long and thin is fast but weak — a straight dart at your foe travels at 3.4 m/s, does 10 damage a hit, and erodes after 100 damage, so 100 hits break a perfect circle. A perfect circle is very slow but does 80 damage/s and lasts 800 damage. More complex shapes sit in between.</span></div>
-      <div><b>Centre line = path</b><span>draw a line down through a Chalkling and it will follow that line, scaled up to fit between you and your foe. With no centre line, it meanders generally toward your foe.</span></div>
-      <div><b>Attacking a defense</b><span>a Chalkling meanders along the defense, slowly erasing it, and does extra damage at a corner or dip. A perfect circle has no corners, so it just takes slight damage all the way around. Chalklings erode as they deal damage and disappear when their budget is spent.</span></div>
-      <div><b>Long straight line (not at your foe)</b><span>becomes a Line of Forbiddance — a wall Chalklings must break through.</span></div>
-      <div><b>No picking up Chalklings</b><span>you cannot pick up, carry, or throw a Chalkling — in VR, on desktop, or in a duel. Once it activates, it acts on its own. Squeezing a controller does nothing. You affect Chalklings only indirectly, by drawing defenses, defenders, walls, or new Chalklings.</span></div>
-      <div><b>Chalk points down, tip near the ground</b><span>the chalk sticks out below the controller. It only draws when the tip is within 6 inches of the ground, and the lines are thin.</span></div>
-      <div><b>Lift for 3 seconds to activate</b><span>drawings stay plain white chalk until you have lifted the chalk for 3 seconds straight — then they glow gold and come alive.</span></div>
-      <div><b>Thumbstick / WASD</b><span>move around your half of the arena. Win a round by dropping your foe to 0 health. First to 2 rounds wins the match.</span></div>
-    </div>
 
     <div class="modes">
       <button id="btn-practice" class="primary">Practice vs Chalk AI</button>
+      <button id="btn-testing">Testing Mode</button>
       <button id="btn-host">Host a Duel</button>
       <button id="btn-join">Join a Duel</button>
+      <button id="btn-tutorial">Tutorial</button>
     </div>
 
     <div id="join-box" class="join-box hidden">
@@ -105,12 +89,60 @@
       <button id="btn-desktop">Play on Desktop</button>
     </div>
     <p class="muted small">
-      Desktop test mode: drag with the mouse to draw, WASD to move, Q / E to turn.
-      On Quest, open this page in the Meta Quest Browser, then tap Enter VR.
-      After a game starts, the Enter VR button stays in the bottom-right corner, so you can switch from 2D to VR at any time.<br>
       Fan-made tribute inspired by <i>The Rithmatist</i> by Brandon Sanderson. Not affiliated with the author or publisher.
     </p>
     <p id="lobby-error" class="error"></p>
+  </div>
+
+  <div id="tutorial" class="hidden">
+    <h1>Tutorial</h1>
+    <p class="tagline">How to play Rithmatist VR.</p>
+
+    <h2>Controls</h2>
+    <div class="howto">
+      <div><b>Hold a trigger</b><span>your controller becomes a piece of chalk. The chalk points down from the bottom of the controller, blunt end against the controller and tip below it. It only draws when the tip is within 6 inches of the ground, and the lines are thin.</span></div>
+      <div><b>Lift for 3 seconds to activate</b><span>drawings stay plain white chalk until you have lifted the chalk for 3 seconds straight — then they glow gold and come alive.</span></div>
+      <div><b>Move</b><span>VR thumbstick, or WASD on desktop. Q / E turn, right-drag looks around on desktop. On desktop, drag with the mouse to draw.</span></div>
+      <div><b>Win</b><span>best of 3 rounds. Win a round by dropping your foe to 0 health. First to 2 rounds wins the match.</span></div>
+    </div>
+
+    <h2>Defenses</h2>
+    <div class="howto">
+      <div><b>First: draw your defense all the way around yourself</b><span>a closed shape that encloses you becomes your initial defense. A circle is strongest — the closer to a perfect circle, the more health it has (a perfect circle has 1000).</span></div>
+      <div><b>You cannot leave your first perimeter</b><span>once your initial defense exists, you can move only inside it, sliding along its inside edge. If it breaks, you can move freely again until you draw a new one.</span></div>
+      <div><b>Later defenses must touch that first one</b><span>a closed shape attached to your initial defense extends it, with its own health from its own circularity.</span></div>
+      <div><b>Tethered defenders</b><span>draw a line out from your defense (a string/chain), then a closed shape near its far end. That defender hunts enemy Chalklings, but cannot go further than its tether allows.</span></div>
+      <div><b>Long straight line (not at your foe)</b><span>becomes a Line of Forbiddance — a wall Chalklings must break through.</span></div>
+    </div>
+
+    <h2>Chalklings</h2>
+    <div class="howto">
+      <div><b>Anything closed and not attached is a Chalkling</b><span>it wiggles off to attack your foe's defenses, then your foe.</span></div>
+      <div><b>Strength comes from the drawing</b><span>long and thin is fast but weak — a straight dart at your foe travels at 3.4 m/s, does 10 damage a hit, and erodes after 100 damage, so 100 hits break a perfect circle. A perfect circle is very slow but does 80 damage/s and lasts 800 damage. More complex shapes sit in between.</span></div>
+      <div><b>Centre line = path</b><span>draw a line down through a Chalkling and it will follow that line, scaled up to fit between you and your foe. With no centre line, it meanders generally toward your foe.</span></div>
+      <div><b>Attacking a defense</b><span>a Chalkling meanders along the defense, slowly erasing it, and does extra damage at a corner or dip. A perfect circle has no corners, so it just takes slight damage all the way around. Chalklings erode as they deal damage and disappear when their budget is spent.</span></div>
+      <div><b>No picking up Chalklings</b><span>you cannot pick up, carry, or throw a Chalkling — in VR, on desktop, or in a duel. Once it activates, it acts on its own. Squeezing a controller does nothing. You affect Chalklings only indirectly, by drawing defenses, defenders, walls, or new Chalklings.</span></div>
+      <div><b>Chalklings have no eyes</b><span>a Chalkling is just its gold shape and owner-coloured outline — no face.</span></div>
+      <div><b>Chalk is a resource</b><span>drawing costs chalk, and it recharges over time. You can have at most 5 Chalklings alive at once.</span></div>
+    </div>
+
+    <h2>Testing Mode</h2>
+    <div class="howto">
+      <div><b>Testing Mode</b><span>your opponent stands still and does not draw — no defenses, no Chalklings, no attacks. Use it to try out drawings, test how a shape moves and hits, and see how much damage it does, without anything coming back at you.</span></div>
+    </div>
+
+    <h2>Scenery and VR</h2>
+    <div class="howto">
+      <div><b>Scenery rotates each match</b><span>each time you start a match, the set changes: The Stage, then The Park, then The Roman Coliseum, then back to The Stage. In a duel, the host's set is used so both players see the same scenery.</span></div>
+      <div><b>On Quest</b><span>open this page in the Meta Quest Browser, then tap Enter VR. After a game starts, the Enter VR button stays in the bottom-right corner, so you can switch from 2D to VR at any time, and Exit VR brings you back to 2D.</span></div>
+      <div><b>On desktop</b><span>drag with the mouse to draw, WASD to move, Q / E to turn, right-drag to look around.</span></div>
+    </div>
+
+    <div class="row actions">
+      <button id="btn-tutorial-back" class="primary">Back to Start</button>
+      <button id="btn-tutorial-practice">Start Practice</button>
+      <button id="btn-tutorial-testing">Start Testing Mode</button>
+    </div>
   </div>
 </div>
 <script type="module" src="game.js"></script>
