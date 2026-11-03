@@ -44,14 +44,16 @@ how much damage it does, without anything coming back at you.
 * Best of 3 rounds. Win a round by dropping your opponent to 0 health.
   First to 2 rounds wins the match.
 * **Hold a trigger** and the controller in that hand becomes a piece of chalk.
-  The chalk points down from the bottom of the controller, blunt end against
-  the controller and tip below it. It only draws while the tip is within
-  6 inches of the ground, and the lines are thin.
+  The chalk is angled from the bottom of the controller — 45° down and
+  20° to the left, blunt end against the controller and tip below it.
+  It only draws while the tip is within 6 inches of the ground, and the
+  lines are thin (about 2 cm wide).
 * Drawings do not activate immediately: they stay plain white chalk until
-  you have lifted the chalk for 3 seconds straight. Then they glow gold
-  and come alive (a thin owner-coloured outline still shows whose a
-  Chalkling is). No circles are shown at the start of a game; circles
-  only appear as defenses you draw.
+  you have lifted the chalk for 1 second straight. Then their lines
+  glow gold and they come alive — completed drawings are not filled in,
+  just the lines glowing gold (a thin owner-coloured line underneath
+  still shows whose a Chalkling is). No circles are shown at the start
+  of a game; circles only appear as defenses you draw.
 * **Start with your defense.** Draw a closed shape all the way around
   yourself and it becomes your initial defense. You cannot leave this
   first perimeter: once it exists, you can move only inside it (you
@@ -60,10 +62,15 @@ how much damage it does, without anything coming back at you.
   strength is measured by circularity (4π·area / perimeter²), so a
   perfect circle has 1000 health, a square about 850, and a ragged shape
   much less. No initial defense, no protection — draw it first.
-* **Later defenses must be attached to the first one.** A closed shape
-  touching your initial defense (or any defense piece) extends it, with
-  its own health from its own circularity. Anything closed and not
-  attached is a Chalkling, and wiggles off to attack.
+* **Draw inside your perimeter.** You cannot leave your first perimeter,
+  so draw everything inside it. A closed shape around yourself inside
+  it becomes an inner defense layer. **Later defenses must be attached
+  to the first one** unless they enclose you: a closed shape touching
+  your initial defense (or any defense piece) extends it, with its own
+  health from its own circularity. Anything closed and not attached,
+  and not around you, is a Chalkling — and if it was drawn inside your
+  initial defense, it wiggles out through your own perimeter on
+  activation. Your own defense never blocks your own Chalklings.
 * **Tethered defenders.** Draw a line (a string/chain) out from your
   initial defense, then a closed shape near its far end. That defender
   hunts enemy Chalklings, deals its own damage to them, and takes damage
@@ -84,8 +91,8 @@ how much damage it does, without anything coming back at you.
   follows that line, scaled up to fit between you and your foe. With no
   centre line, it meanders generally toward your foe.
 * **Attacking a defense.** A Chalkling that reaches a defense meanders
-  along its perimeter, slowly erasing it (its gold fill fades as its
-  health falls), and does 1.5× damage at a corner or dip. A perfect
+  along its perimeter, slowly erasing it (its gold glow lines fade as
+  its health falls), and does 1.5× damage at a corner or dip. A perfect
   circle has no corners, so it just takes slight damage all the way
   around. Chalklings degrade as they deal damage and disappear when
   their damage budget is spent — more complex and more perfectly
@@ -97,7 +104,7 @@ how much damage it does, without anything coming back at you.
   a controller does nothing. Once a drawing activates, it acts on its
   own. You affect Chalklings only indirectly, by drawing defenses,
   tethered defenders, walls, or new Chalklings. Chalklings have no eyes:
-  they are just their gold shape and owner-coloured outline.
+  they are just their gold glowing lines and a thin owner-coloured line.
 * **Scenery rotates each match.** Each time you start a match, the set
   changes: **The Stage** (wooden floor, red curtains, footlights),
   **The Park** (grass, trees, benches, lamp posts), then **The Roman
