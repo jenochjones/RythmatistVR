@@ -100,7 +100,7 @@
 
     <h2>Controls</h2>
     <div class="howto">
-      <div><b>Hold a trigger</b><span>your controller becomes a piece of chalk. The chalk is angled from the bottom of the controller — 45° down and 20° to the left, blunt end against the controller and tip below it. It only draws when the tip is within 6 inches of the ground, and the lines are thin (about 2 cm wide).</span></div>
+      <div><b>Hold a trigger</b><span>your controller becomes a piece of chalk, held like a pencil in your hand: the controller stays visible, and a longer pencil sits in it, blunt end at the controller and tip forward, left, and below it, angled 45° down and 20° to the left. It only draws when the tip is within 6 inches of the ground, and the lines are thin (about 2 cm wide).</span></div>
       <div><b>Lift for 1 second to activate</b><span>drawings stay plain white chalk until you have lifted the chalk for 1 second straight — then their lines glow gold and they come alive. Completed drawings are not filled in: just the lines, glowing gold.</span></div>
       <div><b>Move</b><span>VR thumbstick, or WASD on desktop. Q / E turn, right-drag looks around on desktop. On desktop, drag with the mouse to draw.</span></div>
       <div><b>Win</b><span>best of 3 rounds. Win a round by dropping your foe to 0 health. First to 2 rounds wins the match.</span></div>
@@ -109,16 +109,16 @@
     <h2>Defenses</h2>
     <div class="howto">
       <div><b>First: draw your defense all the way around yourself</b><span>a closed shape that encloses you becomes your initial defense. A circle is strongest — the closer to a perfect circle, the more health it has (a perfect circle has 1000).</span></div>
-      <div><b>Draw inside your perimeter</b><span>you cannot leave your first perimeter, so draw everything inside it. A closed shape around yourself inside it becomes an inner defense layer. Any other closed shape drawn inside it becomes a Chalkling, and on activation it wiggles out through your own perimeter to attack your foe — your own defense never blocks your own Chalklings.</span></div>
+      <div><b>Draw inside your perimeter</b><span>you cannot leave your first perimeter, so draw everything inside it. Any closed shape drawn inside it that does not connect to a defense line becomes a Chalkling, and on activation it wiggles out through your own perimeter to attack your foe — your own defense never blocks your own Chalklings.</span></div>
       <div><b>You cannot leave your first perimeter</b><span>once your initial defense exists, you can move only inside it, sliding along its inside edge. If it breaks, you can move freely again until you draw a new one.</span></div>
-      <div><b>Later defenses must touch that first one</b><span>a closed shape attached to your initial defense extends it, with its own health from its own circularity.</span></div>
+      <div><b>Later defenses must physically connect to a defense line</b><span>a closed shape becomes part of your defense only if its drawn line actually touches (within about 15 cm of) a perimeter defense line. Nearby is not enough — if it does not connect, it is a Chalkling, not a defense.</span></div>
       <div><b>Tethered defenders</b><span>draw a line out from your defense (a string/chain), then a closed shape near its far end. That defender hunts enemy Chalklings, but cannot go further than its tether allows.</span></div>
       <div><b>Long straight line (not at your foe)</b><span>becomes a Line of Forbiddance — a wall Chalklings must break through.</span></div>
     </div>
 
     <h2>Chalklings</h2>
     <div class="howto">
-      <div><b>Anything closed and not attached is a Chalkling</b><span>it wiggles off to attack your foe's defenses, then your foe.</span></div>
+      <div><b>Anything closed and not connected to a defense is a Chalkling</b><span>it wiggles off to attack your foe's defenses, then your foe.</span></div>
       <div><b>Strength comes from the drawing</b><span>long and thin is fast but weak — a straight dart at your foe travels at 3.4 m/s, does 10 damage a hit, and erodes after 100 damage, so 100 hits break a perfect circle. A perfect circle is very slow but does 80 damage/s and lasts 800 damage. More complex shapes sit in between.</span></div>
       <div><b>Centre line = path</b><span>draw a line down through a Chalkling and it will follow that line, scaled up to fit between you and your foe. With no centre line, it meanders generally toward your foe.</span></div>
       <div><b>Attacking a defense</b><span>a Chalkling meanders along the defense, slowly erasing it, and does extra damage at a corner or dip. A perfect circle has no corners, so it just takes slight damage all the way around. Chalklings erode as they deal damage and disappear when their budget is spent.</span></div>
@@ -146,6 +146,6 @@
     </div>
   </div>
 </div>
-<script type="module" src="game.js"></script>
+<script type="module" src="game.js?v=pencil1"></script>
 </body>
 </html>
