@@ -309,13 +309,42 @@ for (let i = 0; i < 2; i++) {
   chalkMesh.rotation.x = THREE.MathUtils.degToRad(45);
   chalkMesh.rotation.z = THREE.MathUtils.degToRad(-20);
   chalkMesh.visible = false;
-  grip.add(ctrlMesh, chalkMesh);
+  // The cloth: a flat light-blue pad held in the hand, shown only
+  // when this hand's trigger is pressed while the other hand is
+  // already holding chalk. Its centre marker is the erasing point —
+  // rub it on the ground over your own drawing to erase it.
+  const clothMesh = new THREE.Group();
+  const clothPad = new THREE.Mesh(
+    new THREE.BoxGeometry(0.16, 0.02, 0.16),
+    new THREE.MeshStandardMaterial({ color: 0xa8c8e8, roughness: 1 })
+  );
+  const clothMarker = new THREE.Object3D();
+  clothMarker.position.y = -0.10;
+  clothMesh.add(clothPad, clothMarker);
+  clothMesh.position.set(-0.02, -0.10, -0.08);
+  clothMesh.visible = false;
+  grip.add(ctrlMesh, chalkMesh, clothMesh);
   const hand = {
-    index: i, grip, controller, ctrlMesh, chalkMesh, tipMarker,
-    drawing: false, stroke: null,
+    index: i, grip, controller, ctrlMesh, chalkMesh, tipMarker, clothMesh, clothMarker,
+    drawing: false, stroke: null, tool: null, erasing: false,
   };
-  controller.addEventListener('selectstart', () => { hand.chalkMesh.visible = true; startDraw(i); });
-  controller.addEventListener('selectend', () => { hand.chalkMesh.visible = false; endDraw(i); });
+  controller.addEventListener('selectstart', () => {
+    const other = hands[1 - i];
+    if (other && other.drawing && other.tool === 'chalk') {
+      // Chalk in one hand, trigger on the other: the other hand
+      // gets a cloth, not a second piece of chalk.
+      hand.tool = 'cloth'; hand.erasing = true; hand.clothMesh.visible = true;
+    } else {
+      hand.tool = 'chalk'; hand.chalkMesh.visible = true; startDraw(i);
+    }
+  });
+  controller.addEventListener('selectend', () => {
+    if (hand.tool === 'cloth') {
+      hand.erasing = false; hand.clothMesh.visible = false; hand.tool = null;
+    } else {
+      hand.chalkMesh.visible = false; endDraw(i); hand.tool = null;
+    }
+  });
   // No squeeze / grip handler, on purpose: a player cannot pick up or
   // throw a Chalkling. Once a drawing activates, it acts on its own,
   // and the player can only affect it by drawing new defenses or
@@ -324,7 +353,7 @@ for (let i = 0; i < 2; i++) {
 }
 
 // Desktop fallback hand (mouse ray)
-const desktopHand = { drawing: false, stroke: null };
+const desktopHand = { drawing: false, stroke: null, erasing: false };
 
 // ---------------- Drawing: chalk ribbons on the ground ----------------
 const strokesGroup = new THREE.Group(); scene.add(strokesGroup);
@@ -407,10 +436,17 @@ class Ribbon {
 }
 
 // Drawings do not activate the moment you lift the chalk. They sit as
-// plain white chalk until the chalk has been lifted continuously for
-// 1 second — only then do they come alive (gold, see below). Picking
-// the chalk up again before that second is up restarts the count,
-// so a batch of drawings activates together on the next clean lift.
+// plain white chalk for 1 second after you finish drawing them — only
+// then do they come alive (gold, see below).
+// BUG FIX (Nov 2): the old code reset every pending timer whenever
+// you started a new stroke, and froze all timers while any hand was
+// drawing. So if you kept drawing, drew with both hands, or held the
+// other trigger down, nothing ever reached 1 second and no Chalkling
+// ever activated. Now each stroke has its own timer that starts when
+// that stroke is finished and runs regardless of what you draw next.
+// Oldest first, so a tether activates before the defender shape drawn
+// after it, and a Chalkling activates before the centre line drawn
+// through it (which then finds it active and sets its path).
 const ACTIVATION_LIFT_SECONDS = 1;
 const pendingStrokes = []; // {stroke, owner, liftedSeconds}
 function queueStroke(stroke, owner) {
@@ -418,15 +454,7 @@ function queueStroke(stroke, owner) {
   pendingStrokes.push({ stroke, owner, liftedSeconds: 0 });
   toast('Drawing set.');
 }
-function resetPendingLift() {
-  pendingStrokes.forEach((p) => { p.liftedSeconds = 0; });
-}
 function updatePendingStrokes(dt) {
-  const drawingNow = hands.some((h) => h.drawing) || desktopHand.drawing;
-  if (drawingNow) { resetPendingLift(); return; }
-  // Oldest first, so a tether activates before the defender shape drawn
-  // after it, and a Chalkling activates before the centre line drawn
-  // through it (which then finds it active and sets its path).
   for (const p of [...pendingStrokes]) {
     p.liftedSeconds += dt;
     if (p.liftedSeconds >= ACTIVATION_LIFT_SECONDS) {
@@ -442,7 +470,6 @@ function clearPendingStrokes() {
 function startDraw(handIndex) {
   const hand = hands[handIndex];
   if (hand.drawing) return;
-  resetPendingLift();
   hand.drawing = true;
   hand.stroke = new Ribbon(COLOR_HEX[state.playerIndex]);
 }
@@ -457,12 +484,15 @@ function startDesktopDraw(e) {
   if (state.mode === 'lobby') return;
   const p = groundPointFromMouse(e);
   if (!p) return;
-  resetPendingLift();
+  // Desktop cloth: Shift + drag erases your own drawings at the
+  // mouse point, instead of drawing chalk.
+  if (e.shiftKey) { desktopHand.erasing = true; eraseOwnDrawingsAt(p, state.playerIndex); return; }
   desktopHand.drawing = true;
   desktopHand.stroke = new Ribbon(COLOR_HEX[state.playerIndex]);
   desktopHand.stroke.add(p);
 }
 function endDesktopDraw() {
+  desktopHand.erasing = false;
   if (!desktopHand.drawing || !desktopHand.stroke) return;
   desktopHand.drawing = false;
   queueStroke(desktopHand.stroke, state.playerIndex);
@@ -767,6 +797,48 @@ function spawnWall(owner, a, b, id = uid(), broadcast = true) {
   return ent;
 }
 function removeWall(w) { dynamicGroup.remove(w.mesh); walls.splice(walls.indexOf(w), 1); if (state.mode === 'duel') send({ t: 'remove', kind: 'wall', id: w.id }); }
+
+// Erasing with a cloth: rub the cloth over one of YOUR OWN drawings
+// on the ground and it disappears. Foe drawings are never erased,
+// and a cloth never erases anything while it is not near the ground.
+// Radius is generous (0.4 m) so a cloth rub actually clears a line,
+// not just a single point on it.
+const ERASE_RADIUS = 0.4;
+function eraseOwnDrawingsAt(p, owner) {
+  if (state.mode === 'lobby') return;
+  // Pending (still white, not yet activated) strokes.
+  for (const pend of [...pendingStrokes]) {
+    if (pend.owner !== owner) continue;
+    if (pend.stroke.pts.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < ERASE_RADIUS)) {
+      pend.stroke.dispose();
+      pendingStrokes.splice(pendingStrokes.indexOf(pend), 1);
+    }
+  }
+  for (const c of [...chalklings]) {
+    if (c.owner !== owner) continue;
+    if (c.pos.distanceTo(p) < 0.6 || c.pts.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < ERASE_RADIUS)) removeChalkling(c, true);
+  }
+  for (const d of [...defenders]) {
+    if (d.owner !== owner) continue;
+    if (d.pos.distanceTo(p) < 0.6 || d.pts.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < ERASE_RADIUS)) removeDefender(d, true);
+  }
+  for (const d of [...defenses]) {
+    if (d.owner !== owner) continue;
+    if (pointInPolygon(p, d.pts) || distToPolygon(p, d.pts).dist < ERASE_RADIUS) removeDefensePiece(d, true);
+  }
+  for (const w of [...walls]) {
+    if (w.owner !== owner) continue;
+    if (distToSegment(p, w.a, w.b) < ERASE_RADIUS) removeWall(w);
+  }
+  for (const t of [...tethers]) {
+    if (t.owner !== owner) continue;
+    if (distToSegment(p, t.anchor, t.end) < ERASE_RADIUS) {
+      const def = defenders.find((x) => x.id === t.defenderId);
+      if (def) removeDefender(def, true);
+      removeTether(t, true);
+    }
+  }
+}
 
 function makeScaledPath(linePts, spawnPos, targetPos) {
   const start = linePts[0], end = linePts[linePts.length - 1];
@@ -1435,6 +1507,7 @@ window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 canvas.addEventListener('mousedown', (e) => { if (e.button === 0) startDesktopDraw(e); });
 window.addEventListener('mousemove', (e) => {
   if (desktopHand.drawing) { const p = groundPointFromMouse(e); if (p) desktopHand.stroke.add(p); }
+  if (desktopHand.erasing) { const p = groundPointFromMouse(e); if (p) eraseOwnDrawingsAt(p, state.playerIndex); }
   if (e.buttons === 2) { yaw -= e.movementX * 0.003; pitch = THREE.MathUtils.clamp(pitch - e.movementY * 0.003, -1.2, 1.2); }
 });
 window.addEventListener('mouseup', endDesktopDraw);
@@ -1518,6 +1591,16 @@ renderer.setAnimationLoop(() => {
       if (hand.drawing && hand.stroke) {
         const p = groundPointFromGrip(hand);
         if (p) hand.stroke.add(p);
+      }
+      // VR erasing: rub the cloth on the ground over your own drawing.
+      // Cloth only erases when it is near the ground (under 0.5 m),
+      // so waving it in the air does not delete anything by accident.
+      if (hand.erasing && hand.clothMarker) {
+        const c = new THREE.Vector3();
+        hand.clothMarker.getWorldPosition(c);
+        if (c.y < 0.5 && c.y > -0.05 && Math.hypot(c.x, c.z) <= ARENA_RADIUS) {
+          eraseOwnDrawingsAt(new THREE.Vector3(c.x, 0, c.z), state.playerIndex);
+        }
       }
     });
   }
